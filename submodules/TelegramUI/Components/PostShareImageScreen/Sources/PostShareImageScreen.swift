@@ -657,7 +657,7 @@ private final class PostShareMessagesView: UIView, UIScrollViewDelegate {
         guard !groups.isEmpty, let width = self.layoutWidth else {
             return []
         }
-        self.forEachTextContentNode { $0.resignTextSelection() }
+        self.forEachTextContentNode { $0.cancelTextSelection() }
 
         // The canvas is laid out at each image's size while it is captured; a still copy of the window hides that.
         var coverView: UIView?
@@ -1025,7 +1025,8 @@ private final class PostShareSheetContentComponent: Component {
                         color: theme.chat.inputPanel.panelControlColor,
                         startingPosition: .end,
                         size: CGSize(width: 28.0, height: 28.0),
-                        playOnce: self.appearanceButtonPlayOnce
+                        playOnce: self.appearanceButtonPlayOnce,
+                        lottieSettings: component.context.lottieRenderingSettings
                     ))),
                     action: { [weak self] _ in
                         self?.toggleAppearance()
@@ -1208,7 +1209,7 @@ private final class PostShareSheetComponent: Component {
                 metrics: environment.metrics,
                 deviceMetrics: environment.deviceMetrics,
                 isDisplaying: environment.isVisible,
-                isCentered: environment.presentsFloatingPanels,
+                isCentered: false,
                 hasInputHeight: !environment.inputHeight.isZero,
                 regularMetricsSize: CGSize(width: 430.0, height: 900.0),
                 dismiss: { [weak self] _ in
