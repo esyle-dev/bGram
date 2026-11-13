@@ -1331,7 +1331,6 @@ enum ConceptsDemoAutopilot {
                                 }
                                 watch()
                                 // Одна настоящая пружина: старт с начальной скоростью, перелёт за край и затухающий возврат.
-                                historyNode.conceptsAnimatedScroll(toMessageId: indices.start.id, position: conceptsDemoScrollPosition(key: "startScroll", fallback: .bottom(0.0)), duration: 1.4, spring: (mass: 1.0, stiffness: 33.0, damping: 8.6, velocity: 0.0))
                             })
                         })
                         after(1.3, {

@@ -9,6 +9,8 @@ import PresentationDataUtils
 import AccountContext
 import ContextUI
 import BetaFeatures
+import UndoUI
+import ChatScheduleTimeController
 
 // βeta Features: Time Capsule.
 //
@@ -44,11 +46,11 @@ func chatMessageDisplayTimeCapsuleOptions(selfController: ChatControllerImpl, no
     }
     items.append(ActionSheetButtonItem(title: isRussian ? "Выбрать время…" : "Choose a time…", action: { [weak actionSheet] in
         actionSheet?.dismissAnimated()
-        selfController.presentScheduleTimePicker(completion: { [weak selfController] (result: ChatScheduleTimeScreen.Result) in
+        selfController.presentScheduleTimePicker(completion: { [weak selfController] (time: Int32, _: Int32?) in
             guard let selfController else {
                 return
             }
-            selfController.sendTimeCapsule(scheduleTime: result.time)
+            selfController.sendTimeCapsule(scheduleTime: time)
         })
     }))
 
