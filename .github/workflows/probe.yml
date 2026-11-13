@@ -1,0 +1,13 @@
+name: probe
+on:
+  workflow_dispatch:
+jobs:
+  hello:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - run: |
+          uname -m
+          sw_vers
+          ls /Applications | grep -i Xcode
+          xcodebuild -version
