@@ -949,99 +949,21 @@ private final class PostShareSheetContentComponent: Component {
 
         // MARK: - Actions
 
-        /// Sends the screenshots through Telegram's share sheet, to any chats: one photo, or an album of several.
+        /// Shares the screenshots through the system share sheet: one image, or several as an album.
         fileprivate func shareImages() {
             guard let component = self.component, let controller = self.environment?.controller(), let images = self.messagesView?.renderImages(), !images.isEmpty else {
                 return
             }
-            let context = component.context
-            // As the gallery picker sends a photo: a 320 px thumbnail and the photo itself within 2560 px.
-            var medias: [TelegramMediaImage] = []
-            for image in images {
-                var representations: [TelegramMediaImageRepresentation] = []
-                for maxSide in [320.0, PostShareMessagesView.maxPhotoPixelSide] as [CGFloat] {
-                    guard let (data, pixelSize) = postShareJpegData(image: image, maxPixelSide: maxSide, quality: maxSide < 1000.0 ? 0.4 : 0.95) else {
-                        continue
-                    }
-                    let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
-                    context.engine.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
-                    representations.append(TelegramMediaImageRepresentation(
-                        dimensions: PixelDimensions(pixelSize),
-                        resource: resource,
-                        progressiveSizes: [],
-                        immediateThumbnailData: nil,
-                        hasVideo: false,
-                        isPersonal: false
-                    ))
-                }
-                if representations.count < 2 {
-                    continue
-                }
-                medias.append(TelegramMediaImage(
-                    imageId: EngineMedia.Id(namespace: Namespaces.Media.LocalImage, id: Int64.random(in: Int64.min ... Int64.max)),
-                    representations: representations,
-                    immediateThumbnailData: nil,
-                    reference: nil,
-                    partialReference: nil,
-                    flags: []
-                ))
-            }
-            if medias.isEmpty {
-                return
-            }
-
-            // The chats the sheet sent to, for the "sent" toast once the sheet and the editor have closed.
-            var sentPeerIds: [EnginePeer.Id] = []
-            let screenshotCount = medias.count
-            let sent = component.content.sent
             let dismiss = component.dismiss
-            var didFinish = false
-            let finish: () -> Void = {
-                if didFinish {
-                    return
-                }
-                didFinish = true
-                dismiss()
-                if !sentPeerIds.isEmpty {
-                    sent?(sentPeerIds, screenshotCount)
-                }
+            let activity = UIActivityViewController(activityItems: images, applicationActivities: nil)
+            if let popover = activity.popoverPresentationController {
+                popover.sourceView = controller.view
+                popover.sourceRect = CGRect(origin: CGPoint(x: controller.view.bounds.midX, y: controller.view.bounds.midY), size: CGSize(width: 1.0, height: 1.0))
             }
-
-            // The same share sheet as forwarding a post (ShareScreen), not the legacy ShareController.
-            let shareController = context.sharedContext.makeShareScreen(context: context, params: ShareControllerParams(
-                subject: .fromExternal(medias.count, { peerIds, threadIds, _, text, account, _ in
-                    guard let account = account as? ShareControllerAppAccountContext else {
-                        return .single(.done)
-                    }
-                    Queue.mainQueue().async {
-                        sentPeerIds = peerIds
-                    }
-                    let signals = peerIds.map { peerId -> Signal<[EngineMessage.Id?], NoError> in
-                        // Several screenshots go as one album; the text typed in the share sheet goes with the first.
-                        let groupingKey: Int64? = medias.count > 1 ? Int64.random(in: Int64.min ... Int64.max) : nil
-                        let messages: [EnqueueMessage] = medias.enumerated().map { index, media in
-                            return .message(text: index == 0 ? text : "", attributes: [], inlineStickers: [:], mediaReference: .standalone(media: media), threadId: threadIds[peerId], replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: groupingKey, correlationId: nil, bubbleUpEmojiOrStickersets: [])
-                        }
-                        return enqueueMessages(account: account.context.account, peerId: peerId, messages: messages)
-                    }
-                    return combineLatest(signals)
-                    |> castError(ShareControllerError.self)
-                    |> map { _ -> ShareControllerExternalStatus in
-                        return .done
-                    }
-                }),
-                externalShare: false,
-                actionCompleted: {
-                    finish()
-                },
-                completed: { peerIds in
-                    if !peerIds.isEmpty {
-                        sentPeerIds = peerIds
-                    }
-                    finish()
-                }
-            ))
-            controller.present(shareController, in: .window(.root))
+            activity.completionWithItemsHandler = { _, _, _, _ in
+                dismiss()
+            }
+            controller.present(activity, animated: true, completion: nil)
         }
 
         // MARK: - Layout
