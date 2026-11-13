@@ -715,3 +715,43 @@ public class InvisibleInkDustNode: ASDisplayNode {
         }
     }
 }
+
+public extension InvisibleInkDustNode {
+    /// Draws the dust as still dots, the way the non-animated variant shows it, in this node's coordinates.
+    /// A snapshot (`drawHierarchy`) does not capture the animated emitter, so without this the hidden text would
+    /// come out as an empty gap.
+    func drawStaticDust(in context: CGContext) {
+        guard !self.isRevealed, let (_, color, _, lineRects, _) = self.currentParams else {
+            return
+        }
+        var combinedRect: CGRect?
+        var combinedRects: [CGRect] = []
+        for rect in lineRects {
+            if let currentRect = combinedRect {
+                if abs(currentRect.minY - rect.minY) < 1.0 && abs(currentRect.maxY - rect.maxY) < 1.0 {
+                    combinedRect = currentRect.union(rect)
+                } else {
+                    combinedRects.append(currentRect.insetBy(dx: 0.0, dy: -1.0 + UIScreenPixel))
+                    combinedRect = rect
+                }
+            } else {
+                combinedRect = rect
+            }
+        }
+        if let combinedRect {
+            combinedRects.append(combinedRect.insetBy(dx: 0.0, dy: -1.0))
+        }
+
+        var generator = ArbitraryRandomNumberGenerator(seed: 1)
+        context.saveGState()
+        context.setFillColor(color.cgColor)
+        for rect in combinedRects where rect.width > 10.0 {
+            let rate = Int(rect.width * rect.height * 0.25)
+            for _ in 0 ..< rate {
+                let location = CGPoint(x: .random(in: rect.minX ..< rect.maxX, using: &generator), y: .random(in: rect.minY ..< rect.maxY, using: &generator))
+                context.fillEllipse(in: CGRect(origin: location, size: CGSize(width: 1.0, height: 1.0)))
+            }
+        }
+        context.restoreGState()
+    }
+}

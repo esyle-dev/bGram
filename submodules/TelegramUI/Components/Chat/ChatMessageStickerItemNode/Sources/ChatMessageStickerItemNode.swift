@@ -1705,7 +1705,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                             switch currentSwipeAction {
                             case .none:
                                 break
-                            case .reply:
+                            case .reply, .hideFromScreenshot:
                                 item.controllerInteraction.setupReply(item.message.id)
                             }
                         }

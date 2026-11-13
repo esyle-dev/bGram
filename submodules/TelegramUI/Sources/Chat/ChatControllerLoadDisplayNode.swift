@@ -5,6 +5,7 @@ import SwiftSignalKit
 import Display
 import AsyncDisplayKit
 import TelegramCore
+import VisualQuote
 import SafariServices
 import MobileCoreServices
 import Intents
@@ -1042,6 +1043,7 @@ extension ChatControllerImpl {
                 
                 let effectiveSilentPosting = silentPosting ?? strongSelf.presentationInterfaceState.interfaceState.silentPosting
                 let transformedMessages = strongSelf.transformEnqueueMessages(messages, silentPosting: effectiveSilentPosting, scheduleTime: scheduleTime, repeatPeriod: repeatPeriod, postpone: postpone)
+                let multiReplyTargets = strongSelf.takeMultiReplyTargets(transformedMessages)
                 
                 var forwardedMessages: [[EnqueueMessage]] = []
                 var forwardSourcePeerIds = Set<PeerId>()
@@ -1115,6 +1117,9 @@ extension ChatControllerImpl {
                     |> deliverOnMainQueue).startStandalone(next: { messageIds in
                         guard let strongSelf = self else {
                             return
+                        }
+                        if forwardSourcePeerIds.count <= 1 {
+                            strongSelf.registerMultiReplies(multiReplyTargets, messageIds: messageIds)
                         }
                         if case .scheduledMessages = strongSelf.presentationInterfaceState.subject {
                         } else {
@@ -1635,7 +1640,62 @@ extension ChatControllerImpl {
                 }))
             }
         }
-        
+
+        // Локальные концепты: переход к первому непрочитанному посту из исключений.
+        self.chatDisplayNode.navigateButtons.conceptsMuteExceptionsPressed = { [weak self] in
+            if let strongSelf = self, strongSelf.isNodeLoaded, let peerId = strongSelf.chatLocation.peerId {
+                let signal = conceptsMuteExceptionUnreadMessages(context: strongSelf.context, peerId: peerId) |> take(1)
+                strongSelf.navigationActionDisposable.set((signal |> deliverOnMainQueue).startStrict(next: { indices in
+                    if let strongSelf = self, let index = indices.first {
+                        // Пост подсвечивается, а слово из исключения в нём — как цитата.
+                        strongSelf.navigationActionDisposable.set((conceptsMuteExceptionQuote(context: strongSelf.context, messageId: index.id) |> deliverOnMainQueue).startStrict(next: { quote in
+                            guard let strongSelf = self else {
+                                return
+                            }
+                            // Пост и слово в нём подсвечиваются так же, как при переходе по цитате.
+                            let fromIndex = strongSelf.chatDisplayNode.historyNode.anchorMessageInCurrentHistoryView()?.index ?? index
+                            strongSelf.chatDisplayNode.historyNode.scrollToMessage(from: fromIndex, to: index, animated: true, highlight: true, quote: quote.flatMap { (string: $0.string, offset: $0.offset) }, scrollPosition: conceptsDemoScrollPosition(key: "bellScroll", fallback: .center(.top)))
+                            if conceptsOfflineDemoEnabled {
+                                // Подсветка как при переходе по цитате: пост и слово в нём, когда пост доехал до экрана.
+                                let deadline = CFAbsoluteTimeGetCurrent() + 4.0
+                                func highlightWhenVisible() {
+                                    guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {
+                                        return
+                                    }
+                                    if strongSelf.chatDisplayNode.historyNode.isMessageVisibleOnScreen(index.id) || CFAbsoluteTimeGetCurrent() > deadline {
+                                        Queue.mainQueue().after(0.45, {
+                                            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction, let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(index.id)?._asMessage() else {
+                                                return
+                                            }
+                                            let state = ChatInterfaceHighlightedState(messageStableId: message.stableId, quote: quote.flatMap { ChatInterfaceHighlightedState.Quote(string: $0.string, offset: $0.offset) }, subject: nil)
+                                            controllerInteraction.highlightedState = state
+                                            strongSelf.updateItemNodesHighlightedStates(animated: true)
+                                            Queue.mainQueue().after(1.6, {
+                                                if let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction, controllerInteraction.highlightedState == state {
+                                                    controllerInteraction.highlightedState = nil
+                                                    strongSelf.updateItemNodesHighlightedStates(animated: true)
+                                                }
+                                            })
+                                        })
+                                        let _ = controllerInteraction
+                                    } else {
+                                        Queue.mainQueue().after(0.05, highlightWhenVisible)
+                                    }
+                                }
+                                highlightWhenVisible()
+                            }
+                        }))
+                    }
+                }))
+            }
+        }
+
+        if conceptsOfflineDemoEnabled && CommandLine.arguments.contains("--concepts-demo-autoscroll") {
+            Queue.mainQueue().after(6.0, { [weak self] in
+                self?.chatDisplayNode.navigateButtons.conceptsMuteExceptionsPressed?()
+            })
+        }
+
         self.chatDisplayNode.navigateButtons.pollVotesButton.activated = { [weak self] gesture, _ in
             guard let strongSelf = self else {
                 gesture.cancel()
@@ -1698,11 +1758,13 @@ extension ChatControllerImpl {
                 if canSendMessagesHere {
                     let _ = strongSelf.presentVoiceMessageDiscardAlert(action: {
                         if let message = strongSelf.chatDisplayNode.historyNode.messageInCurrentHistoryView(messageId)?._asMessage() {
+                            MultiReplyStore.shared.clearPendingDeck(peerId: message.id.peerId)
                             strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState({
                                 $0.withUpdatedReplyMessageSubject(ChatInterfaceState.ReplyMessageSubject(
                                     messageId: message.id,
                                     quote: nil,
-                                    innerSubject: innerSubject
+                                    innerSubject: innerSubject,
+                                    voiceFragment: VoiceReplyFragmentStore.shared.take(for: message.id)
                                 ))
                             }).updatedReplyMessage(message).updatedSearch(nil).updatedShowCommands(false) }, completion: { t in
                                 completion(t, {})
@@ -1726,7 +1788,8 @@ extension ChatControllerImpl {
                     let replySubject = ChatInterfaceState.ReplyMessageSubject(
                         messageId: messageId,
                         quote: nil,
-                        innerSubject: innerSubject
+                        innerSubject: innerSubject,
+                        voiceFragment: VoiceReplyFragmentStore.shared.take(for: messageId)
                     )
                     
                     completion(.immediate, {
@@ -1743,6 +1806,9 @@ extension ChatControllerImpl {
                     })
                 }
             } else {
+                if let peerId = strongSelf.presentationInterfaceState.interfaceState.replyMessageSubject?.messageId.peerId {
+                    MultiReplyStore.shared.clearPendingDeck(peerId: peerId)
+                }
                 strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState({ $0.withUpdatedReplyMessageSubject(nil).withUpdatedSendMessageEffect(nil).withUpdatedPostSuggestionState(nil) }) }, completion: { t in
                     completion(t, {})
                 })
@@ -1780,13 +1846,19 @@ extension ChatControllerImpl {
                                     webpageUrl = content.url
                                 }
                             }
+                            // Visual Quote: the region marker is re-attached on save and counts towards the limit.
+                            if VisualQuoteTransport.region(in: message) != nil {
+                                inputTextMaxLength -= Int32(VisualQuoteTransport.markerLength)
+                            }
                             
                             let editInputState: ChatTextInputState
                             if let richTextAttribute = message.attributes.first(where: { $0 is RichTextMessageAttribute }) as? RichTextMessageAttribute {
                                 let content = chatInputContent(fromInstantPage: richTextAttribute.instantPage)
                                 editInputState = ChatTextInputState(content: content, selectionRange: content.length ..< content.length)
                             } else {
-                                let inputText = chatInputStateStringWithAppliedEntities(message.text, entities: entities)
+                                // Visual Quote: edit the visible text only; the region is re-attached when the edit is saved.
+                                let editSource = VisualQuoteTransport.detach(text: message.text, entities: entities)
+                                let inputText = chatInputStateStringWithAppliedEntities(editSource.text, entities: editSource.entities)
                                 editInputState = ChatTextInputState(inputText: inputText)
                             }
                             var disableUrlPreviews: [String] = []
@@ -2221,7 +2293,16 @@ extension ChatControllerImpl {
                 let content = editMessage.inputState.content
                 let richText: RichTextMessageAttribute? = content.isEntityExpressible() ? nil : RichTextMessageAttribute(instantPage: instantPage(from: content), fullInstantPage: nil)
 
-                let entities = generateTextEntities(text.string, enabledTypes: .all, currentEntities: generateChatInputTextEntities(text))
+                var entities = generateTextEntities(text.string, enabledTypes: .all, currentEntities: generateChatInputTextEntities(text))
+                var messageText = text.string
+                // Visual Quote: the editor worked on the visible text only; put the region back on the edited text.
+                if let region = VisualQuoteTransport.region(in: message._asMessage()) {
+                    (messageText, entities) = VisualQuoteTransport.attach(region, toText: messageText, entities: entities)
+                    // The marker's URL must not become a link preview; a preview the user kept stays.
+                    if webpagePreviewAttribute == nil {
+                        disableUrlPreview = true
+                    }
+                }
                 var entitiesAttribute: TextEntitiesMessageAttribute?
                 if !entities.isEmpty {
                     entitiesAttribute = TextEntitiesMessageAttribute(entities: entities)
@@ -2305,8 +2386,8 @@ extension ChatControllerImpl {
                             let currentRichText = currentMessage.attributes.first(where: { $0 is RichTextMessageAttribute }) as? RichTextMessageAttribute
 
                             do {
-                                if currentMessage.text != text.string || currentEntities != entities || currentRichText != nil || richText != nil || updatingMedia || webpagePreviewAttribute != currentWebpagePreviewAttribute || disableUrlPreview {
-                                    strongSelf.context.account.pendingUpdateMessageManager.add(messageId: editMessage.messageId, text: richText != nil ? "" : text.string, media: media, entities: richText != nil ? nil : entitiesAttribute, richText: richText, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, invertMediaAttribute: invertedMediaAttribute, disableUrlPreview: disableUrlPreview)
+                                if currentMessage.text != messageText || currentEntities != entities || currentRichText != nil || richText != nil || updatingMedia || webpagePreviewAttribute != currentWebpagePreviewAttribute || disableUrlPreview {
+                                    strongSelf.context.account.pendingUpdateMessageManager.add(messageId: editMessage.messageId, text: richText != nil ? "" : messageText, media: media, entities: richText != nil ? nil : entitiesAttribute, richText: richText, inlineStickers: inlineStickers, webpagePreviewAttribute: webpagePreviewAttribute, invertMediaAttribute: invertedMediaAttribute, disableUrlPreview: disableUrlPreview)
                                 }
                             }
                         }
@@ -4529,8 +4610,14 @@ extension ChatControllerImpl {
                             webpageUrl = content.url
                         }
                     }
+                    // Visual Quote: the region marker is re-attached on save and counts towards the limit.
+                    if VisualQuoteTransport.region(in: message) != nil {
+                        inputTextMaxLength -= Int32(VisualQuoteTransport.markerLength)
+                    }
                     
-                    let inputText = chatInputStateStringWithAppliedEntities(message.text, entities: entities)
+                    // Visual Quote: edit the visible text only; the region is re-attached when the edit is saved.
+                    let editSource = VisualQuoteTransport.detach(text: message.text, entities: entities)
+                    let inputText = chatInputStateStringWithAppliedEntities(editSource.text, entities: editSource.entities)
                     var disableUrlPreviews: [String] = []
                     if webpageUrl == nil {
                         disableUrlPreviews = detectUrls(inputText)
@@ -4866,7 +4953,24 @@ extension ChatControllerImpl {
             }
         }, chatController: { [weak self] in
             return self
-        }, statuses: ChatPanelInterfaceInteractionStatuses(editingMessage: self.editingMessage.get(), startingBot: self.startingBot.get(), unblockingPeer: self.unblockingPeer.get(), searching: self.searching.get(), loadingMessage: self.loadingMessage.get(), inlineSearch: self.performingInlineSearch.get()))
+        }, statuses: ChatPanelInterfaceInteractionStatuses(editingMessage: self.editingMessage.get(), startingBot: self.startingBot.get(), unblockingPeer: self.unblockingPeer.get(), searching: self.searching.get(), loadingMessage: self.loadingMessage.get(), inlineSearch: self.performingInlineSearch.get()), replyToSelectedMessages: { [weak self] in
+            guard let self, let selectedIds = self.presentationInterfaceState.interfaceState.selectionState?.selectedIds, (2 ... MultiReplyStore.maxMessageCount).contains(selectedIds.count) else {
+                return
+            }
+            self.commitPurposefulAction()
+            self.updateReplyDeck(Array(selectedIds).sorted())
+            self.chatDisplayNode.ensureInputViewFocused()
+        }, removeReplyDeckMessage: { [weak self] messageId in
+            guard let self, let currentReply = self.presentationInterfaceState.interfaceState.replyMessageSubject else {
+                return
+            }
+            let deckMessageIds = ([currentReply.messageId] + (currentReply.extraMessageIds ?? [])).filter { $0 != messageId }
+            if deckMessageIds.isEmpty {
+                self.interfaceInteraction?.setupReplyMessage(nil, nil, { _, f in f() })
+            } else {
+                self.updateReplyDeck(deckMessageIds, innerSubject: currentReply.innerSubject)
+            }
+        })
         
         self.interfaceInteraction = interfaceInteraction
         
@@ -5111,16 +5215,22 @@ extension ChatControllerImpl {
                     })
                 
                     self.chatUnreadMentionCountDisposable?.dispose()
-                    self.chatUnreadMentionCountDisposable = (self.context.account.viewTracker.unseenPersonalMessagesAndReactionCount(peerId: peerId, threadId: nil) |> deliverOnMainQueue).startStrict(next: { [weak self] mentionCount, reactionCount, pollVoteCount in
+                    self.chatUnreadMentionCountDisposable = (combineLatest(
+                        self.context.account.viewTracker.unseenPersonalMessagesAndReactionCount(peerId: peerId, threadId: nil),
+                        conceptsMuteExceptionUnreadMessages(context: self.context, peerId: peerId)
+                    ) |> deliverOnMainQueue).startStrict(next: { [weak self] counts, conceptsMuteExceptionMessages in
+                        let (mentionCount, reactionCount, pollVoteCount) = counts
                         if let strongSelf = self {
                             if case .standard(.previewing) = strongSelf.presentationInterfaceState.mode {
                                 strongSelf.chatDisplayNode.navigateButtons.mentionCount = 0
                                 strongSelf.chatDisplayNode.navigateButtons.reactionsCount = 0
                                 strongSelf.chatDisplayNode.navigateButtons.pollVotesCount = 0
+                                strongSelf.chatDisplayNode.navigateButtons.conceptsMuteExceptionsCount = 0
                             } else {
                                 strongSelf.chatDisplayNode.navigateButtons.mentionCount = mentionCount
                                 strongSelf.chatDisplayNode.navigateButtons.reactionsCount = reactionCount
                                 strongSelf.chatDisplayNode.navigateButtons.pollVotesCount = pollVoteCount
+                                strongSelf.chatDisplayNode.navigateButtons.conceptsMuteExceptionsCount = Int32(conceptsMuteExceptionMessages.count)
                             }
                         }
                     })

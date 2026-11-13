@@ -698,22 +698,42 @@ final class FFMpegMediaFrameSourceContext: NSObject {
             var actualPts: CMTime = CMTimeMake(value: 0, timescale: 1)
             var extraVideoFrames: [MediaTrackDecodableFrame] = []
             if timestamp.isZero || initializedState.videoStream == nil {
-                for _ in 0 ..< 24 {
+                // An audio-only stream is sought to the nearest point at or before the target, which for a voice message
+                // can be well over a second early. Packets that end before the target are skipped, so playback (and the
+                // reported position) starts where it was asked to, to within a packet.
+                var skipUntilPts: CMTime?
+                if initializedState.videoStream == nil, let audioStream = initializedState.audioStream, !timestamp.isZero {
+                    skipUntilPts = CMTimeMakeWithSeconds(max(0.0, timestamp - 0.04), preferredTimescale: audioStream.timebase.timescale)
+                }
+                var lastSkippedPacket: (packet: FFMpegPacket, pts: CMTime)?
+                var foundPacket = false
+                for _ in 0 ..< (skipUntilPts != nil ? 4000 : 24) {
                     if let packet = self.readPacketInternal() {
                         if let videoStream = initializedState.videoStream, Int(packet.streamIndex) == videoStream.index {
                             self.packetQueue.append(packet)
                             let pts = CMTimeMake(value: packet.pts, timescale: videoStream.timebase.timescale)
                             actualPts = pts
+                            foundPacket = true
                             break
                         } else if let audioStream = initializedState.audioStream, Int(packet.streamIndex) == audioStream.index {
-                            self.packetQueue.append(packet)
                             let pts = CMTimeMake(value: packet.pts, timescale: audioStream.timebase.timescale)
+                            if let skipUntilPts, CMTimeCompare(pts, skipUntilPts) < 0 {
+                                lastSkippedPacket = (packet, pts)
+                                continue
+                            }
+                            self.packetQueue.append(packet)
                             actualPts = pts
+                            foundPacket = true
                             break
                         }
                     } else {
                         break
                     }
+                }
+                // The target is past the last packet: play that one rather than nothing.
+                if !foundPacket, let lastSkippedPacket {
+                    self.packetQueue.append(lastSkippedPacket.packet)
+                    actualPts = lastSkippedPacket.pts
                 }
             } else if let videoStream = initializedState.videoStream {
                 let targetPts = CMTimeMakeWithSeconds(Float64(timestamp), preferredTimescale: videoStream.timebase.timescale)

@@ -39,6 +39,7 @@ import ChatMessageTextBubbleContentNode
 import ChatMessageRichDataBubbleContentNode
 import ChatMessageItemCommon
 import ChatMessageReplyInfoNode
+import VisualQuote
 import ChatMessageCallBubbleContentNode
 import ChatMessageInteractiveFileNode
 import ChatMessageFileBubbleContentNode
@@ -695,7 +696,8 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
     private var deliveryFailedNode: ChatMessageDeliveryFailedNode?
     private var swipeToReplyNode: ChatMessageSwipeToReplyNode?
     private var swipeToReplyFeedback: HapticFeedback?
-    
+    private let conceptsSwipe = ConceptsSwipeController()
+
     private var nameAvatarNode: AvatarNode?
     private var nameNode: TextNode?
     private var nameButtonNode: HighlightTrackingButtonNode?
@@ -876,6 +878,10 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
             if strongSelf.selectionNode != nil {
                 return .none
             }
+            // The screenshot editor has no message menu: a long press only selects text, without the press scale.
+            if let item = strongSelf.item, item.controllerInteraction.isScreenshotEditor {
+                return .none
+            }
             if let item = strongSelf.item, item.controllerInteraction.focusedPollAddOptionMessageId != nil {
                 return .none
             }
@@ -960,6 +966,22 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
             }
             
             if let singleUrl = accessibilityData.singleUrl {
+                // The invisible transport entity is metadata, not a web link for VoiceOver.
+                if let region = VisualQuoteTransport.region(fromUrl: singleUrl) {
+                    guard let item = strongSelf.item else {
+                        return false
+                    }
+                    for attribute in item.message.attributes {
+                        if let attribute = attribute as? ReplyMessageAttribute {
+                            if let replyMessage = item.message.associatedMessages[attribute.messageId], replyMessage.media.contains(where: { $0 is TelegramMediaImage }), item.controllerInteraction.openMessage(replyMessage, OpenMessageParams(mode: .default, mediaSubject: region.galleryMediaSubject)) {
+                                return true
+                            }
+                            item.controllerInteraction.navigateToMessage(item.message.id, attribute.messageId, NavigateToMessageParams(timestamp: nil, quote: nil, subject: attribute.innerSubject, progress: nil))
+                            return true
+                        }
+                    }
+                    return false
+                }
                 strongSelf.item?.controllerInteraction.openUrl(ChatControllerInteraction.OpenUrl(url: singleUrl, concealed: false, external: false, message: strongSelf.item?.content.firstMessage))
                 return true
             }
@@ -3026,6 +3048,24 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                     headerSize.height += 11.0
                 } else {
                     headerSize.height += 2.0
+                }
+                if let deck = MultiReplyStore.shared.deck(parentStableId: item.message.stableId) {
+                    let missingMessageIds = deck.messageIds.dropFirst().filter { MultiReplyStore.shared.cachedMessage(id: $0) == nil }
+                    if !missingMessageIds.isEmpty {
+                        let _ = (item.context.engine.data.get(EngineDataList(missingMessageIds.map { TelegramEngine.EngineData.Item.Messages.Message(id: $0) }))
+                        |> deliverOnMainQueue).startStandalone(next: { messages in
+                            var hasCachedMessages = false
+                            for message in messages {
+                                if let message {
+                                    MultiReplyStore.shared.cacheMessage(message._asMessage())
+                                    hasCachedMessages = true
+                                }
+                            }
+                            if hasCachedMessages {
+                                item.controllerInteraction.requestMessageUpdate(item.message.id, false, nil)
+                            }
+                        })
+                    }
                 }
                 let sizeAndApply = replyInfoLayout(ChatMessageReplyInfoNode.Arguments(
                     presentationData: item.presentationData,
@@ -5776,7 +5816,11 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
         
         self.messageAccessibilityArea.accessibilityLabel = accessibilityData.label
         self.messageAccessibilityArea.accessibilityValue = accessibilityData.value
-        self.messageAccessibilityArea.accessibilityHint = accessibilityData.hint
+        if let singleUrl = accessibilityData.singleUrl, VisualQuoteTransport.region(fromUrl: singleUrl) != nil {
+            self.messageAccessibilityArea.accessibilityHint = self.item?.presentationData.strings.VoiceOver_Chat_OpenHint
+        } else {
+            self.messageAccessibilityArea.accessibilityHint = accessibilityData.hint
+        }
         self.messageAccessibilityArea.accessibilityTraits = accessibilityData.traits
         if let customActions = accessibilityData.customActions {
             self.messageAccessibilityArea.accessibilityCustomActions = customActions.map({ action -> UIAccessibilityCustomAction in
@@ -5948,6 +5992,31 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                     }
                 } else if let replyInfoNode = self.replyInfoNode, self.item?.controllerInteraction.tapMessage == nil, replyInfoNode.frame.contains(location) {
                     if let item = self.item {
+                        if let deck = MultiReplyStore.shared.deck(parentStableId: item.message.stableId) {
+                            let localPoint = CGPoint(x: location.x - replyInfoNode.frame.minX, y: location.y - replyInfoNode.frame.minY)
+                            let stableId = item.message.stableId
+                            if let deckCounterFrame = replyInfoNode.deckCounterFrame, deckCounterFrame.insetBy(dx: -12.0, dy: -10.0).contains(localPoint) {
+                                return .action(InternalBubbleTapAction.Action({
+                                    if deck.isExpanded {
+                                        MultiReplyStore.shared.setExpanded(parentStableId: stableId, isExpanded: false)
+                                    } else {
+                                        MultiReplyStore.shared.advance(parentStableId: stableId)
+                                    }
+                                    item.controllerInteraction.requestMessageUpdate(item.message.id, false, nil)
+                                }))
+                            }
+                            if deck.isExpanded {
+                                let targetMessageId = replyInfoNode.deckCardTargets.first(where: { $0.frame.contains(localPoint) })?.messageId ?? deck.messageIds[0]
+                                return .action(InternalBubbleTapAction.Action({
+                                    item.controllerInteraction.navigateToMessage(item.message.id, targetMessageId, NavigateToMessageParams(timestamp: nil, quote: nil))
+                                }, contextMenuOnLongPress: true))
+                            }
+                            return .action(InternalBubbleTapAction.Action({
+                                MultiReplyStore.shared.setExpanded(parentStableId: stableId, isExpanded: true)
+                                item.controllerInteraction.requestMessageUpdate(item.message.id, false, nil)
+                            }, contextMenuOnLongPress: true))
+                        }
+                        
                         if item.controllerInteraction.summarizedMessageIds.contains(item.message.id) {
                             return .action(InternalBubbleTapAction.Action({ [weak self] in
                                 guard let self else {
@@ -5982,6 +6051,12 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                                 return .action(InternalBubbleTapAction.Action({ [weak self] in
                                     guard let self else {
                                         return
+                                    }
+                                    // A reply to a photo detail opens the original in the gallery, zoomed to the region.
+                                    if let region = VisualQuoteTransport.region(in: item.message), let replyMessage = item.message.associatedMessages[attribute.messageId], replyMessage.media.contains(where: { $0 is TelegramMediaImage }) {
+                                        if item.controllerInteraction.openMessage(replyMessage, OpenMessageParams(mode: .default, mediaSubject: region.galleryMediaSubject)) {
+                                            return
+                                        }
                                     }
                                     var progress: Promise<Bool>?
                                     if let replyInfoNode = self.replyInfoNode {
@@ -7283,6 +7358,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                     self.swipeToReplyFeedback?.prepareImpact()
                 }
                 self.item?.controllerInteraction.cancelInteractiveKeyboardGestures()
+                self.conceptsSwipe.began(node: self)
             case .changed:
                 var translation = recognizer.translation(in: self.view)
                 func rubberBandingOffset(offset: CGFloat, bandingStart: CGFloat) -> CGFloat {
@@ -7342,16 +7418,23 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                         self.playedSwipeToReplyHaptic = true
                         self.swipeToReplyFeedback?.impact(.heavy)
                     }
+
+                    if case .reply = self.currentSwipeAction, let item = self.item {
+                        self.conceptsSwipe.changed(node: self, item: item, centerNode: swipeToReplyNode, translation: recognizer.translation(in: self.view), threshold: swipeOffset)
+                    }
                 }
             case .cancelled, .ended:
                 self.swipeToReplyFeedback = nil
-                
+
                 let translation = recognizer.translation(in: self.view)
-                let gestureRecognized: Bool
+                var gestureRecognized: Bool
                 if recognizer.allowBothDirections {
                     gestureRecognized = abs(translation.x) > swipeOffset
                 } else {
                     gestureRecognized = translation.x < -swipeOffset
+                }
+                if let recognized = self.conceptsSwipe.ended(node: self, item: self.item, isEnded: recognizer.state == .ended) {
+                    gestureRecognized = recognized
                 }
                 if case .ended = recognizer.state, gestureRecognized {
                     if let item = self.item {
@@ -7359,7 +7442,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                             switch currentSwipeAction {
                             case .none:
                                 break
-                            case .reply:
+                            case .reply, .hideFromScreenshot:
                                 item.controllerInteraction.setupReply(item.message.id)
                             }
                         }

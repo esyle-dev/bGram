@@ -3879,6 +3879,24 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
         self.chatHistoryLocationValue = ChatHistoryLocationInput(content: .Scroll(subject: MessageHistoryScrollToSubject(index: .message(toIndex), quote: quote.flatMap { quote in MessageHistoryScrollToSubject.Quote(string: quote.string, offset: quote.offset) }, subject: subject, setupReply: setupReply), anchorIndex: .message(toIndex), sourceIndex: .message(fromIndex), scrollPosition: scrollPosition, animated: animated, highlight: highlight, setupReply: setupReply), id: self.takeNextHistoryLocationId())
     }
     
+    /// Локальные концепты (демо-ролик): плавный скролл к посту изингом пользователя cubic-bezier(0, 0.4, 0, 1) за заданное время.
+    public func conceptsAnimatedScroll(toMessageId messageId: MessageId, position: ListViewScrollPosition, duration: Double, curve: (Float, Float, Float, Float) = (0.0, 0.4, 0.0, 1.0), spring: (mass: CGFloat, stiffness: CGFloat, damping: CGFloat, velocity: CGFloat)? = nil) {
+        // Список чата перевёрнут: прямая транзакция трактует .top как визуальный низ (как и scrollToMessage через историю).
+        var position = position
+        switch position {
+        case let .bottom(offset):
+            position = .top(offset)
+        case let .top(offset):
+            position = .bottom(offset)
+        default:
+            break
+        }
+        guard let historyView = self.historyView, let listIndex = chatHistoryListIndex(ofMessageId: messageId, in: historyView) else {
+            return
+        }
+        self.listView.chatHistoryTransaction(deleteIndices: [], insertIndicesAndItems: [], updateIndicesAndItems: [], options: [], scrollToItem: ListViewScrollToItem(index: listIndex, position: position, animated: true, curve: spring.map { ListViewAnimationCurve.CustomSpring(duration: duration, mass: $0.mass, stiffness: $0.stiffness, damping: $0.damping, initialVelocity: $0.velocity) } ?? .Custom(duration: duration, curve.0, curve.1, curve.2, curve.3), directionHint: .Up), additionalScrollDistance: 0.0, updateSizeAndInsets: nil, stationaryItemRange: nil, customAnimationTransition: nil, maintainsUnreadItemAlignment: false, updateOpaqueState: nil, completion: { _ in })
+    }
+    
     public func anchorMessageInCurrentHistoryView() -> EngineMessage? {
         if let historyView = self.historyView {
             if let visibleRange = self.listView.displayedItemRange.visibleRange {

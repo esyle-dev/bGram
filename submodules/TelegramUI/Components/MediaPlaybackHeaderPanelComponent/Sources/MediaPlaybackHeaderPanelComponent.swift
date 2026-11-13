@@ -369,6 +369,22 @@ public final class MediaPlaybackHeaderPanelComponent: Component {
                                 default:
                                     break
                                 }
+                            } else if case .voice = component.data.kind {
+                                var peerTitle = ""
+                                if let displayData = component.data.item.displayData, case let .voice(author, _) = displayData, let author {
+                                    let presentationData = component.context.sharedContext.currentPresentationData.with { $0 }
+                                    peerTitle = author.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                                }
+                                let controllerContext: AccountContext
+                                if component.data.account.id == component.context.account.id {
+                                    controllerContext = component.context
+                                } else {
+                                    controllerContext = component.context.sharedContext.makeTempAccountContext(account: component.data.account)
+                                }
+                                let transcriptController = component.context.sharedContext.makeVoiceTranscriptScreen(context: controllerContext, messageId: id.messageId, peerTitle: peerTitle)
+                                self.window?.endEditing(true)
+                                transcriptController.navigationPresentation = .flatModal
+                                controller.push(transcriptController)
                             } else {
                                 component.context.sharedContext.navigateToChat(accountId: component.context.account.id, peerId: id.messageId.peerId, messageId: id.messageId)
                             }

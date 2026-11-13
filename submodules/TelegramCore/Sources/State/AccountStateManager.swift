@@ -1915,6 +1915,23 @@ public final class AccountStateManager {
         func addStarRefBotConnectionEvent(event: StarRefBotConnectionEvent) {
             self.starRefBotConnectionEventsPipe.putNext(event)
         }
+        
+        func conceptsDeliverIncomingMessages(ids: [MessageId]) {
+            let signal = self.postbox.transaction { transaction -> [([Message], PeerGroupId, Bool, MessageHistoryThreadData?)] in
+                var messageList: [([Message], PeerGroupId, Bool, MessageHistoryThreadData?)] = []
+                for id in ids {
+                    let (messages, notify, _, _, threadData) = messagesForNotification(transaction: transaction, id: id, alwaysReturnMessage: false)
+                    if !messages.isEmpty {
+                        messageList.append((messages, .root, notify, threadData))
+                    }
+                }
+                return messageList
+            }
+            let _ = (signal
+            |> deliverOn(self.queue)).start(next: { [weak self] messages in
+                self?.notificationMessagesPipe.putNext(messages)
+            })
+        }
     }
     
     private let impl: QueueLocalObject<Impl>
@@ -2386,6 +2403,14 @@ public final class AccountStateManager {
             impl.addStarRefBotConnectionEvent(event: event)
         }
     }
+    
+    /// Локальные концепты: посты, записанные в Postbox офлайн-демо, проходят тот же путь
+    /// уведомлений, что и пришедшие с сервера.
+    public func conceptsDeliverIncomingMessages(ids: [MessageId]) {
+        self.impl.with { impl in
+            impl.conceptsDeliverIncomingMessages(ids: ids)
+        }
+    }
 }
 
 func resolveNotificationSettings(list: [TelegramPeerNotificationSettings], defaultSettings: MessageNotificationSettings) -> (sound: PeerMessageSound, notify: Bool, displayContents: Bool) {
@@ -2512,6 +2537,11 @@ public func messagesForNotification(transaction: Transaction, id: MessageId, alw
     var sound = resolvedSound
     if !resolvedNotify {
         notify = false
+        // Локальные концепты: исключение для канала без звука возвращает уведомление.
+        if conceptsOfflineDemoEnabled && conceptsMuteExceptionMatches(transaction: transaction, message: message) {
+            notify = true
+            conceptsMuteExceptionMarkUnseen(transaction: transaction, message: message)
+        }
     }
     if !resolvedDisplayContents {
         displayContents = false

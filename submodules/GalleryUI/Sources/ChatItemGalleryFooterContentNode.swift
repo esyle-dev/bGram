@@ -585,7 +585,7 @@ final class ChatItemGalleryFooterContentNode: GalleryFooterContentNode, ASScroll
                         self.controllerInteraction?.presentController(translateController, nil)
                     }
                 })
-            case .quote:
+            case .quote, .cutFromScreenshot:
                 break
             }
         })

@@ -147,6 +147,8 @@ public enum ChatListItemContent {
         public var hasUnseenMentions: Bool
         public var hasUnseenReactions: Bool
         public var hasUnseenPollVotes: Bool
+        // Локальные концепты: непрочитанные посты из исключений канала без звука.
+        public var conceptsMuteExceptionCount: Int = 0
         public var draftState: DraftState?
         public var mediaDraftContentType: EngineChatList.MediaDraftContentType?
         public var inputActivities: [(EnginePeer, PeerInputActivity)]?
@@ -188,8 +190,10 @@ public enum ChatListItemContent {
             requiresPremiumForMessaging: Bool,
             displayAsTopicList: Bool,
             tags: [Tag],
-            customMessageListData: CustomMessageListData? = nil
+            customMessageListData: CustomMessageListData? = nil,
+            conceptsMuteExceptionCount: Int = 0
         ) {
+            self.conceptsMuteExceptionCount = conceptsMuteExceptionCount
             self.messages = messages
             self.peer = peer
             self.avatarPeer = avatarPeer
@@ -1422,6 +1426,8 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
     let statusNode: ChatListStatusNode
     let badgeNode: ChatListBadgeNode
     let mentionBadgeNode: ChatListBadgeNode
+    var conceptsBellVisible = false
+    var conceptsBellLayer: CALayer?
     var avatarBadgeNode: ChatListBadgeNode?
     var avatarBadgeBackground: ASImageNode?
     let onlineNode: PeerOnlineMarkerNode
@@ -2327,9 +2333,10 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
             var itemTags: [ChatListItemContent.Tag] = []
             var isCommunity = false
             var displayCommunityAvatarBadge = false
-            
+            var conceptsMuteExceptionCount = 0
+
             var groupHiddenByDefault = false
-            
+
             switch item.content {
                 case .loading:
                     messages = []
@@ -2363,6 +2370,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                     let hasUnseenMentionsValue = peerData.hasUnseenMentions
                     let hasUnseenReactionsValue = peerData.hasUnseenReactions
                     let hasUnseenPollVotesValue = peerData.hasUnseenPollVotes
+                    conceptsMuteExceptionCount = peerData.conceptsMuteExceptionCount
                     let draftStateValue = peerData.draftState
                     let inputActivitiesValue = peerData.inputActivities
                     let promoInfoValue = peerData.promoInfo
@@ -3453,6 +3461,15 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                     currentMentionBadgeImage = PresentationResourcesChatList.badgeBackgroundInactive(item.presentationData.theme, diameter: badgeDiameter)
                     mentionBadgeContent = .text(NSAttributedString(string: mutedUnreadCountText, font: badgeFont, textColor: theme.unreadBadgeInactiveTextColor))
                 }
+
+                // Локальные концепты: среди непрочитанных есть посты из исключений — счётчик активный, как у чата со звуком.
+                if conceptsMuteExceptionCount > 0 {
+                    currentBadgeBackgroundImage = PresentationResourcesChatList.badgeBackgroundActive(item.presentationData.theme, diameter: badgeDiameter)
+                    currentAvatarBadgeBackgroundImage = PresentationResourcesChatList.badgeBackgroundActive(item.presentationData.theme, diameter: avatarBadgeDiameter)
+                    if unreadCount.count > 0 {
+                        badgeContent = .text(NSAttributedString(string: unreadCountText, font: badgeFont, textColor: theme.unreadBadgeActiveTextColor))
+                    }
+                }
             }
 
             if !isPeerGroup {
@@ -3495,6 +3512,9 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                     } else {
                         currentMentionBadgeImage = PresentationResourcesChatList.badgeBackgroundPollVotes(item.presentationData.theme, diameter: badgeDiameter)
                     }
+                    mentionBadgeContent = .mention
+                } else if conceptsMuteExceptionCount > 0 {
+                    currentMentionBadgeImage = conceptsMuteExceptionBadgeIcon(theme: item.presentationData.theme, diameter: badgeDiameter)
                     mentionBadgeContent = .mention
                 } else if item.isPinned, promoInfo == nil, currentBadgeBackgroundImage == nil {
                     currentPinnedIconImage = PresentationResourcesChatList.badgeBackgroundPinned(item.presentationData.theme, diameter: badgeDiameter)
@@ -4651,6 +4671,60 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         
                         transition.updateFrame(node: strongSelf.mentionBadgeNode, frame: badgeFrame)
                         nextBadgeX -= mentionBadgeLayout.width + 6.0
+                        // Демо-ролик: колокольчик исключения появляется со скейлом, прозрачностью и отскоком, затем качается.
+                        let bellNow = conceptsMuteExceptionCount > 0
+                        if bellNow && !strongSelf.conceptsBellVisible && conceptsOfflineDemoEnabled {
+                            let node = strongSelf.mentionBadgeNode
+                            let appear = CASpringAnimation(keyPath: "transform.scale")
+                            appear.fromValue = 0.1
+                            appear.toValue = 1.0
+                            appear.mass = 1.0
+                            appear.stiffness = 325.0
+                            appear.damping = 12.0
+                            appear.duration = appear.settlingDuration
+                            node.layer.add(appear, forKey: "demoBellAppear")
+                            let fade = CABasicAnimation(keyPath: "opacity")
+                            fade.fromValue = 0.0
+                            fade.toValue = 1.0
+                            fade.duration = 0.18
+                            node.layer.add(fade, forKey: "demoBellFade")
+                            let ring = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+                            ring.values = [0.0, 0.42, -0.36, 0.26, -0.16, 0.08, 0.0]
+                            ring.keyTimes = [0.0, 0.16, 0.34, 0.52, 0.7, 0.86, 1.0]
+                            ring.duration = 0.8
+                            ring.beginTime = CACurrentMediaTime() + 0.28
+                            ring.fillMode = .backwards
+                            node.layer.add(ring, forKey: "demoBellRing")
+                        }
+                        strongSelf.conceptsBellVisible = bellNow
+                        if bellNow {
+                            let bellLayer: CALayer
+                            if let current = strongSelf.conceptsBellLayer {
+                                bellLayer = current
+                            } else {
+                                bellLayer = CALayer()
+                                strongSelf.conceptsBellLayer = bellLayer
+                                strongSelf.mentionBadgeNode.layer.addSublayer(bellLayer)
+                            }
+                            // Колокольчик SF Symbol (как у иконок Apple) в нужном размере и масштабе экрана: всегда чёткий.
+                            let diameter = badgeFrame.size.height
+                            let configuration = UIImage.SymbolConfiguration(pointSize: diameter * 0.92, weight: .medium)
+                            if let symbol = UIImage(systemName: "bell", withConfiguration: configuration) {
+                                let color = item.presentationData.theme.chatList.unreadBadgeActiveBackgroundColor
+                                let format = UIGraphicsImageRendererFormat()
+                                format.scale = UIScreenScale
+                                format.opaque = false
+                                let image = UIGraphicsImageRenderer(size: symbol.size, format: format).image { _ in
+                                    symbol.withTintColor(color, renderingMode: .alwaysOriginal).draw(in: CGRect(origin: CGPoint(), size: symbol.size))
+                                }
+                                bellLayer.contents = image.cgImage
+                                bellLayer.contentsScale = UIScreenScale
+                                bellLayer.frame = CGRect(x: (badgeFrame.size.width - symbol.size.width) / 2.0, y: (badgeFrame.size.height - symbol.size.height) / 2.0, width: symbol.size.width, height: symbol.size.height)
+                            }
+                            bellLayer.isHidden = false
+                        } else {
+                            strongSelf.conceptsBellLayer?.isHidden = true
+                        }
                         
                         if item.useCommunityViewLayout {
                             strongSelf.mentionBadgeNode.layer.rasterizationScale = UIScreenScale

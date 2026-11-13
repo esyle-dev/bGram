@@ -57,6 +57,7 @@ swift_library(
         "//submodules/ItemListPeerActionItem",
         "//submodules/ItemListPeerItem",
         "//submodules/ItemListUI",
+        "//submodules/ChatListFilterSettingsHeaderItem",
         "//submodules/LegacyComponents",
         "//submodules/LegacyMediaPickerUI",
         "//submodules/LegacyUI",

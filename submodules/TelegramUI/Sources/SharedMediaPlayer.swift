@@ -124,6 +124,7 @@ final class SharedMediaPlayer {
     private var proximityManagerIndex: Int?
     private let controlPlaybackWithProximity: Bool
     private var forceAudioToSpeaker = false
+    private var soundMuted = false
     
     private var stateDisposable: Disposable?
     
@@ -250,6 +251,9 @@ final class SharedMediaPlayer {
                     }
                     if let playbackItem = strongSelf.playbackItem {
                         playbackItem.setForceAudioToSpeaker(strongSelf.forceAudioToSpeaker)
+                        if strongSelf.soundMuted, case let .audio(player) = playbackItem {
+                            player.setSoundMuted(soundMuted: true)
+                        }
                         playbackItem.setActionAtEnd({
                             Queue.mainQueue().async {
                                 if let strongSelf = self {
@@ -463,6 +467,12 @@ final class SharedMediaPlayer {
                 self.playlist.setOrder(order)
             case let .setLooping(looping):
                 self.playlist.setLooping(looping)
+            case let .setSoundMuted(soundMuted):
+                // Playback and its clock keep running, only the audio is silenced. Audio items only.
+                self.soundMuted = soundMuted
+                if let playbackItem = self.playbackItem, case let .audio(player) = playbackItem {
+                    player.setSoundMuted(soundMuted: soundMuted)
+                }
             case let .setBaseRate(baseRate):
                 self.playbackRate = baseRate
                 if let playbackItem = self.playbackItem {

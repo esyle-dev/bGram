@@ -654,6 +654,10 @@ open class ItemListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         var insets = layout.insets(options: [.input])
         insets.top += navigationBarHeight
         insets.bottom = max(insets.bottom, additionalInsets.bottom)
+        if conceptsDemoWindowHeightReduction > 0.0 {
+            // Демо-ролик: нижний отступ списка как на других экранах ролика (кнопка в конце списка ближе к нижнему краю).
+            insets.bottom = max(0.0, insets.bottom - 20.0)
+        }
         
         let inset = max(16.0, floor((layout.size.width - 674.0) / 2.0))
         if layout.size.width >= 320.0 {

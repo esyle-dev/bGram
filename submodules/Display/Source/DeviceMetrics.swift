@@ -292,6 +292,10 @@ public enum DeviceMetrics: CaseIterable, Equatable {
     }
     
     public var screenCornerRadius: CGFloat {
+        // Демо-ролик (узкое окно): углы экрана не скругляем, их рисует мокап.
+        if conceptsDemoWindowHeightReduction > 0.0 {
+            return 0.0
+        }
         switch self {
             case .iPhoneX, .iPhoneXSMax:
                 return 39.0

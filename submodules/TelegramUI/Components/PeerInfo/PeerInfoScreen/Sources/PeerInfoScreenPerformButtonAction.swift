@@ -68,6 +68,13 @@ extension PeerInfoScreenNode {
             if self.data?.threadData == nil, case let .channel(channel) = self.data?.peer, channel.isForumOrMonoForum {
                 displayCustomNotificationSettings = true
             }
+            // Локальные концепты: исключения для канала без звука (офлайн-демо). Меню открывается
+            // и у замьюченного канала, чтобы к исключениям можно было вернуться.
+            var conceptsMuteExceptionsAvailable = false
+            if conceptsOfflineDemoEnabled, self.chatLocation.threadId == nil, case let .channel(channel) = self.data?.peer, case .broadcast = channel.info {
+                conceptsMuteExceptionsAvailable = true
+                displayCustomNotificationSettings = true
+            }
             
             let peerId = self.data?.peer?.id ?? self.peerId
             
@@ -287,6 +294,7 @@ extension PeerInfoScreenNode {
                         controller.push(exceptionController)
                     })
                 })))
+                let conceptsMuteExceptionsItemIndex = items.count
                 
                 if chatIsMuted {
                     items.append(.action(ContextMenuActionItem(text: self.presentationData.strings.PeerInfo_ButtonUnmute, icon: { theme in
@@ -366,7 +374,32 @@ extension PeerInfoScreenNode {
                 self.view.endEditing(true)
                 
                 if let sourceNode = self.headerNode.buttonNodes[.mute]?.referenceNode {
-                    let contextController = makeContextController(presentationData: self.presentationData, source: .reference(PeerInfoContextReferenceContentSource(controller: controller, sourceNode: sourceNode)), items: .single(ContextController.Items(content: .list(items), tip: tip)), gesture: gesture)
+                    var contextItems: Signal<ContextController.Items, NoError> = .single(ContextController.Items(content: .list(items), tip: tip))
+                    if conceptsMuteExceptionsAvailable, let peer = self.data?.peer {
+                        let baseItems = items
+                        let presentationData = self.presentationData
+                        contextItems = conceptsMuteException(postbox: self.context.account.postbox, peerId: peerId)
+                        |> take(1)
+                        |> map { [weak self] exception -> ContextController.Items in
+                            var items = baseItems
+                            let title = exception.isEmpty ? conceptsMuteExceptionsString(presentationData.strings, "Add Exception", "Добавить исключение") : conceptsMuteExceptionsString(presentationData.strings, "Exceptions", "Исключения")
+                            let textLayout: ContextMenuActionItemTextLayout = exception.isEmpty ? .singleLine : .secondLineWithValue(conceptsMuteExceptionSummary(presentationData.strings, exception))
+                            items.insert(.action(ContextMenuActionItem(text: title, textLayout: textLayout, icon: { theme in
+                                return generateTintedImage(image: UIImage(bundleImageName: "News/Channel/MenuNotify"), color: theme.contextMenu.primaryColor)
+                            }, action: { _, f in
+                                f(.dismissWithoutContent)
+                                guard let self else {
+                                    return
+                                }
+                                if !chatIsMuted {
+                                    let _ = self.context.engine.peers.updatePeerMuteSetting(peerId: peerId, threadId: nil, muteInterval: Int32.max).startStandalone()
+                                }
+                                self.controller?.push(peerInfoMuteExceptionsScreen(context: self.context, peer: peer))
+                            })), at: min(conceptsMuteExceptionsItemIndex, items.count))
+                            return ContextController.Items(content: .list(items), tip: tip)
+                        }
+                    }
+                    let contextController = makeContextController(presentationData: self.presentationData, source: .reference(PeerInfoContextReferenceContentSource(controller: controller, sourceNode: sourceNode)), items: contextItems, gesture: gesture)
                     contextController.dismissed = { [weak self] in
                         if let strongSelf = self {
                             strongSelf.state = strongSelf.state.withHighlightedButton(nil)

@@ -108,6 +108,8 @@ public struct ItemListControllerState {
 }
 
 open class ItemListController: ViewController, KeyShortcutResponder, PresentableController {
+    private var conceptsScrollDriver: ConceptsScrollDriver?
+    private var conceptsPinDriver: ConceptsPinDriver?
     var controllerNode: ItemListControllerNode {
         return (self.displayNode as! ItemListControllerNode)
     }
@@ -699,6 +701,33 @@ open class ItemListController: ViewController, KeyShortcutResponder, Presentable
         return result
     }
 
+    /// Локальные концепты (демо-ролик): прокрутка списка на заданную высоту с изингом пользователя cubic-bezier(0, 0.4, 0, 1)
+    /// (без жеста: нет порога распознавания, инерции и отката).
+    public func conceptsScroll(by delta: CGFloat, duration: Double, completion: @escaping () -> Void = {}) {
+        let scroller = self.controllerNode.listNode.scroller
+        let driver = ConceptsScrollDriver(scroller: scroller, delta: delta, duration: duration, completion: completion)
+        self.conceptsScrollDriver = driver
+        driver.start()
+    }
+    
+    /// Локальные концепты (демо-ролик): удерживает нижнюю ячейку списка на месте, пока соседняя раскрывается (замкнутый цикл по кадрам):
+    /// секция плавно подъезжает вверх, а последняя ячейка не двигается.
+    public func conceptsPinLastItem(duration: Double) {
+        let listNode = self.controllerNode.listNode
+        var last: ListViewItemNode?
+        listNode.forEachItemNode { node in
+            if let node = node as? ListViewItemNode, let index = node.index, index >= (last?.index ?? -1) {
+                last = node
+            }
+        }
+        guard let last else {
+            return
+        }
+        let driver = ConceptsPinDriver(scroller: listNode.scroller, node: last, duration: duration)
+        self.conceptsPinDriver = driver
+        driver.start()
+    }
+    
     public func ensureItemNodeVisible(_ itemNode: ListViewItemNode, animated: Bool = true, overflow: CGFloat = 0.0, atTop: Bool = false, curve: ListViewAnimationCurve = .Default(duration: 0.25)) {
         self.controllerNode.listNode.ensureItemNodeVisible(itemNode, animated: animated, overflow: overflow, atTop: atTop, curve: curve)
     }
@@ -787,5 +816,91 @@ private final class ItemListTextWithSubtitleTitleView: UIView, NavigationBarTitl
     }
     
     func animateLayoutTransition() {
+    }
+}
+
+
+private final class ConceptsScrollDriver: NSObject {
+    private let scroller: UIScrollView
+    private let startOffset: CGFloat
+    private let delta: CGFloat
+    private let duration: Double
+    private let completion: () -> Void
+    private var begin: CFTimeInterval = 0.0
+    private var link: CADisplayLink?
+    
+    init(scroller: UIScrollView, delta: CGFloat, duration: Double, completion: @escaping () -> Void) {
+        self.scroller = scroller
+        self.startOffset = scroller.contentOffset.y
+        self.delta = delta
+        self.duration = duration
+        self.completion = completion
+        super.init()
+    }
+    
+    func start() {
+        self.begin = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(self.tick))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+    
+    // Плавный ease-in-out с мягким стартом: cubic-bezier(0.3, 0, 0.1, 1) (изинг (0, 0.4, 0, 1) на прокрутке слишком резкий на старте)
+    private func ease(_ u: Double) -> Double {
+        var lo = 0.0, hi = 1.0
+        for _ in 0 ..< 30 {
+            let m = (lo + hi) / 2.0
+            let x = 3.0 * (1.0 - m) * (1.0 - m) * m * 0.3 + 3.0 * (1.0 - m) * m * m * 0.1 + m * m * m
+            if x < u { lo = m } else { hi = m }
+        }
+        let m = (lo + hi) / 2.0
+        return 3.0 * (1.0 - m) * (1.0 - m) * m * 0.0 + 3.0 * (1.0 - m) * m * m * 1.0 + m * m * m
+    }
+    
+    @objc private func tick() {
+        let u = min(1.0, (CACurrentMediaTime() - self.begin) / self.duration)
+        let p = CGFloat(self.ease(u))
+        self.scroller.setContentOffset(CGPoint(x: 0.0, y: self.startOffset + self.delta * p), animated: false)
+        if u >= 1.0 {
+            self.link?.invalidate()
+            self.link = nil
+            self.completion()
+        }
+    }
+}
+
+
+private final class ConceptsPinDriver: NSObject {
+    private let scroller: UIScrollView
+    private let node: ListViewItemNode
+    private let duration: Double
+    private let targetMaxY: CGFloat
+    private var begin: CFTimeInterval = 0.0
+    private var link: CADisplayLink?
+    
+    init(scroller: UIScrollView, node: ListViewItemNode, duration: Double) {
+        self.scroller = scroller
+        self.node = node
+        self.duration = duration
+        self.targetMaxY = node.apparentFrame.maxY
+        super.init()
+    }
+    
+    func start() {
+        self.begin = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(self.tick))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+    
+    @objc private func tick() {
+        let delta = self.node.apparentFrame.maxY - self.targetMaxY
+        if abs(delta) > 0.01 {
+            self.scroller.setContentOffset(CGPoint(x: 0.0, y: self.scroller.contentOffset.y + delta), animated: false)
+        }
+        if CACurrentMediaTime() - self.begin > self.duration {
+            self.link?.invalidate()
+            self.link = nil
+        }
     }
 }

@@ -109,6 +109,8 @@ enum ChatListNodeEntry: Comparable, Identifiable {
         var hasUnseenMentions: Bool
         var hasUnseenReactions: Bool
         var hasUnseenPollVotes: Bool
+        // Локальные концепты: непрочитанные посты из исключений канала без звука.
+        var conceptsMuteExceptionCount: Int = 0
         var editing: Bool
         var hasActiveRevealControls: Bool
         var selected: Bool
@@ -262,6 +264,9 @@ enum ChatListNodeEntry: Comparable, Identifiable {
                 return false
             }
             if lhs.hasUnseenPollVotes != rhs.hasUnseenPollVotes {
+                return false
+            }
+            if lhs.conceptsMuteExceptionCount != rhs.conceptsMuteExceptionCount {
                 return false
             }
             if let lhsInputActivities = lhs.inputActivities, let rhsInputActivities = rhs.inputActivities {

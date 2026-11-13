@@ -29,6 +29,7 @@ import InteractiveTextComponent
 import ShimmeringMask
 import StreamingTextReveal
 import WalletContext
+import VisualQuote
 
 private final class CachedChatMessageText {
     let text: String
@@ -441,6 +442,11 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                 }
                 
                 
+                // Region metadata must not become a visible or tappable text link.
+                if let entities = messageEntities {
+                    messageEntities = VisualQuoteTransport.visibleEntities(entities)
+                }
+
                 if incoming && item.associatedData.isSuspiciousPeer, let entities = messageEntities {
                     messageEntities = entities.filter { entity in
                         switch entity.type {
@@ -1672,6 +1678,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                 }
                 
                 textSelectionNode.enableQuote = enableQuote
+                textSelectionNode.enableCutFromScreenshot = item.controllerInteraction.isScreenshotEditor
                 textSelectionNode.enableTranslate = enableOtherActions
                 textSelectionNode.enableShare = enableOtherActions && enableCopy
                 textSelectionNode.menuSkipCoordnateConversion = !enableOtherActions
@@ -1700,6 +1707,10 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     
     private func updateDisplayContentsUnderSpoilers(value: Bool, at location: CGPoint?) {
         if self.displayContentsUnderSpoilers.value == value {
+            return
+        }
+        if value, let item = self.item, item.controllerInteraction.isScreenshotEditor {
+            // The screenshot editor hides cut text under spoilers; revealing it would put it back into the image.
             return
         }
         self.displayContentsUnderSpoilers = (value, location)

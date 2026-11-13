@@ -109,7 +109,7 @@ extension ChatControllerImpl {
                         }
                     } else {
                         let numberOfComponents = message.text.components(separatedBy: CharacterSet.whitespacesAndNewlines).count
-                        let displayTextSelectionTip = numberOfComponents >= 3 && !message.text.isEmpty && chatTextSelectionTips < 3 && !isAd
+                        let displayTextSelectionTip = numberOfComponents >= 3 && !message.text.isEmpty && chatTextSelectionTips < 3 && !isAd && !conceptsOfflineDemoEnabled
                         if displayTextSelectionTip {
                             let _ = ApplicationSpecificNotice.incrementChatTextSelectionTips(accountManager: self.context.sharedContext.accountManager).startStandalone()
                             tip = .textSelection

@@ -8,10 +8,13 @@ on:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-26
+    permissions:
+      contents: write
+      actions: write
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
           fetch-depth: '0'
@@ -19,7 +22,14 @@ jobs:
       - name: Set active Xcode path
         run: |
           XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
-          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          echo "Required Xcode: $XCODE_VERSION"
+          ls /Applications/ | grep -i xcode || true
+          if [ -d "/Applications/Xcode_$XCODE_VERSION.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          else
+            echo "Xcode $XCODE_VERSION not found, falling back to default toolchain:"
+            xcodebuild -version || true
+          fi
 
       - name: Create canonical source directory
         run: |
@@ -27,6 +37,32 @@ jobs:
           sudo mkdir -p /Users/Shared
           cp -R $GITHUB_WORKSPACE /Users/Shared/
           mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
+
+      - name: Inject API credentials from secrets
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        run: |
+          # Personal api_id/api_hash are kept in GitHub Secrets (never in git).
+          # If set, they replace the stock public test credentials in the
+          # build configuration before Make.py bakes them into the binary.
+          # Without secrets the stock open-source credentials are used as-is.
+          if [ -n "$TG_API_ID" ] && [ -n "$TG_API_HASH" ]; then
+            python3 - "$TG_API_ID" "$TG_API_HASH" <<'EOF'
+          import json, sys
+          path = "/Users/Shared/telegram-ios/build-system/appstore-configuration.json"
+          with open(path, encoding="utf-8") as f:
+              cfg = json.load(f)
+          cfg["api_id"] = sys.argv[1]
+          cfg["api_hash"] = sys.argv[2]
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(cfg, f, indent="\t")
+              f.write("\n")
+          print("api credentials injected from secrets")
+          EOF
+          else
+            echo "TG_API_ID/TG_API_HASH secrets not set, using stock credentials"
+          fi
 
       - name: Build the App
         run: |
@@ -58,52 +94,46 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
 
-          # collect ipa
+          # collect ipa (resolve via find: exact bazel-out config dir varies by toolchain)
           OUTPUT_PATH="build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            cp "$f" $OUTPUT_PATH/
-          done
+          IPA_SRC="$(find -L bazel-out -maxdepth 5 -path '*/bin/Telegram/Telegram.ipa' | head -1)"
+          if [ -z "$IPA_SRC" ]; then
+            echo "Telegram.ipa not found under bazel-out"
+            find -L bazel-out -maxdepth 5 -name '*.ipa' | head
+            exit 1
+          fi
+          echo "Found IPA at $IPA_SRC"
+          cp "$IPA_SRC" "$OUTPUT_PATH/"
 
           # collect dsym
           mkdir -p build/DSYMs
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/*.dSYM; do
-            cp -R "$f" build/DSYMs/
-          done
+          find -L bazel-out -maxdepth 5 -path '*/bin/Telegram/*.dSYM' -exec cp -R {} build/DSYMs/ \;
           zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Create Release and upload assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: build-${{ env.BUILD_NUMBER }}
-          release_name: Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
-          body: |
-            An unsigned build of Telegram for iOS ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
-          draft: false
-          prerelease: false
+        run: |
+          gh release create "build-${{ env.BUILD_NUMBER }}" \
+            --title "Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})" \
+            --notes "An unsigned build of Telegram for iOS ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})" \
+            "/Users/Shared/telegram-ios/build/artifacts/Telegram.ipa#Telegram.ipa" \
+            "/Users/Shared/telegram-ios/build/artifacts/Telegram.DSYMs.zip#Telegram.DSYMs.zip"
 
-      - name: Upload Release IPA
-        id: upload-release-ipa 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload IPA as workflow artifact
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
-          asset_name: Telegram.ipa
-          asset_content_type: application/zip
+          name: Telegram-ipa
+          path: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Upload Release DSYM
-        id: upload-release-dsym 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload dSYMs as workflow artifact
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.DSYMs.zip
-          asset_name: Telegram.DSYMs.zip
-          asset_content_type: application/zip
+          name: Telegram-dSYMs
+          path: /Users/Shared/telegram-ios/build/artifacts/Telegram.DSYMs.zip
+          if-no-files-found: error
+          retention-days: 14

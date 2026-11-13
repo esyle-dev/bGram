@@ -6,6 +6,9 @@ import AsyncDisplayKit
 import TelegramPresentationData
 import WallpaperBackgroundNode
 
+/// Демо-ролик: скрыть кнопку «вниз» до конца записи.
+var conceptsDemoHideDownButton = false
+
 final class ChatHistoryNavigationButtons: ASDisplayNode {
     struct ButtonState: Equatable {
         var isEnabled: Bool
@@ -32,6 +35,7 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
     
     let reactionsButton: ChatHistoryNavigationButtonNode
     let pollVotesButton: ChatHistoryNavigationButtonNode
+    let conceptsMuteExceptionsButton: ChatHistoryNavigationButtonNode
     let mentionsButton: ChatHistoryNavigationButtonNode
     let downButton: ChatHistoryNavigationButtonNode
     let upButton: ChatHistoryNavigationButtonNode
@@ -50,6 +54,7 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
     
     var reactionsPressed: (() -> Void)?
     var pollVotesPressed: (() -> Void)?
+    var conceptsMuteExceptionsPressed: (() -> Void)?
     var mentionsPressed: (() -> Void)?
     
     var directionButtonState: DirectionState = DirectionState(up: nil, down: nil) {
@@ -112,6 +117,21 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         }
     }
     
+    // Локальные концепты: непрочитанные посты из исключений канала без звука.
+    var conceptsMuteExceptionsCount: Int32 = 0 {
+        didSet {
+            if self.conceptsMuteExceptionsCount != 0 {
+                self.conceptsMuteExceptionsButton.badge = compactNumericCountString(Int(self.conceptsMuteExceptionsCount), decimalSeparator: self.dateTimeFormat.decimalSeparator)
+            } else {
+                self.conceptsMuteExceptionsButton.badge = ""
+            }
+            
+            if (oldValue != 0) != (self.conceptsMuteExceptionsCount != 0) {
+                let _ = self.updateLayout(transition: .animated(duration: 0.3, curve: .spring))
+            }
+        }
+    }
+    
     init(theme: PresentationTheme, preferClearGlass: Bool, dateTimeFormat: PresentationDateTimeFormat, backgroundNode: WallpaperBackgroundNode, isChatRotated: Bool) {
         self.isChatRotated = isChatRotated
         self.theme = theme
@@ -130,6 +150,10 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         self.pollVotesButton.alpha = 0.0
         self.pollVotesButton.isHidden = true
         
+        self.conceptsMuteExceptionsButton = ChatHistoryNavigationButtonNode(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode, type: .conceptsMuteExceptions)
+        self.conceptsMuteExceptionsButton.alpha = 0.0
+        self.conceptsMuteExceptionsButton.isHidden = true
+        
         self.downButton = ChatHistoryNavigationButtonNode(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode, type: isChatRotated ? .down : .up)
         self.downButton.alpha = 0.0
         self.downButton.isHidden = true
@@ -142,6 +166,7 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         
         self.addSubnode(self.reactionsButton)
         self.addSubnode(self.pollVotesButton)
+        self.addSubnode(self.conceptsMuteExceptionsButton)
         self.addSubnode(self.mentionsButton)
         self.addSubnode(self.downButton)
         self.addSubnode(self.upButton)
@@ -152,6 +177,10 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         
         self.pollVotesButton.tapped = { [weak self] in
             self?.pollVotesPressed?()
+        }
+        
+        self.conceptsMuteExceptionsButton.tapped = { [weak self] in
+            self?.conceptsMuteExceptionsPressed?()
         }
         
         self.mentionsButton.tapped = { [weak self] in
@@ -173,6 +202,7 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         
         self.reactionsButton.updateTheme(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode)
         self.pollVotesButton.updateTheme(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode)
+        self.conceptsMuteExceptionsButton.updateTheme(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode)
         self.mentionsButton.updateTheme(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode)
         self.downButton.updateTheme(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode)
         self.upButton.updateTheme(theme: theme, preferClearGlass: preferClearGlass, backgroundNode: backgroundNode)
@@ -191,6 +221,11 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         pollVotesFrame.origin.x += rect.minX
         pollVotesFrame.origin.y += rect.minY
         self.pollVotesButton.update(rect: pollVotesFrame, within: containerSize, transition: transition)
+        
+        var conceptsMuteExceptionsFrame = self.conceptsMuteExceptionsButton.frame
+        conceptsMuteExceptionsFrame.origin.x += rect.minX
+        conceptsMuteExceptionsFrame.origin.y += rect.minY
+        self.conceptsMuteExceptionsButton.update(rect: conceptsMuteExceptionsFrame, within: containerSize, transition: transition)
         
         var mentionsFrame = self.mentionsButton.frame
         mentionsFrame.origin.x += rect.minX
@@ -215,8 +250,10 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         var mentionsOffset: CGFloat = 0.0
         var reactionsOffset: CGFloat = 0.0
         var pollVotesOffset: CGFloat = 0.0
+        var conceptsMuteExceptionsOffset: CGFloat = 0.0
         
-        if let down = self.directionButtonState.down {
+        // Демо-ролик: в конце петли кнопка «вниз» уходит вместе с быстрым отскроллом и больше не появляется.
+        if let down = self.directionButtonState.down, !conceptsDemoHideDownButton {
             self.downButton.imageView.alpha = down.isEnabled ? 1.0 : 0.5
             self.downButton.isEnabled = down.isEnabled
             
@@ -287,6 +324,7 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
         }
         
         if self.pollVotesCount != 0 {
+            conceptsMuteExceptionsOffset += buttonSize.height + 12.0
             self.pollVotesButton.isHidden = false
             transition.updateAlpha(node: self.pollVotesButton, alpha: 1.0)
             transition.updateTransformScale(node: self.pollVotesButton, scale: 1.0)
@@ -300,18 +338,34 @@ final class ChatHistoryNavigationButtons: ASDisplayNode {
             transition.updateTransformScale(node: self.pollVotesButton, scale: 0.2)
         }
         
+        if self.conceptsMuteExceptionsCount != 0 {
+            self.conceptsMuteExceptionsButton.isHidden = false
+            transition.updateAlpha(node: self.conceptsMuteExceptionsButton, alpha: 1.0)
+            transition.updateTransformScale(node: self.conceptsMuteExceptionsButton, scale: 1.0)
+        } else {
+            transition.updateAlpha(node: self.conceptsMuteExceptionsButton, alpha: 0.0, completion: { [weak self] completed in
+                guard let strongSelf = self, completed else {
+                    return
+                }
+                strongSelf.conceptsMuteExceptionsButton.isHidden = true
+            })
+            transition.updateTransformScale(node: self.conceptsMuteExceptionsButton, scale: 0.2)
+        }
+        
         if self.isChatRotated {
             transition.updatePosition(node: self.downButton, position: CGRect(origin: CGPoint(x: 0.0, y: completeSize.height - buttonSize.height), size: buttonSize).center)
             transition.updatePosition(node: self.upButton, position: CGRect(origin: CGPoint(x: 0.0, y: completeSize.height - buttonSize.height - upOffset), size: buttonSize).center)
             transition.updatePosition(node: self.mentionsButton, position: CGRect(origin: CGPoint(x: 0.0, y: completeSize.height - buttonSize.height - mentionsOffset), size: buttonSize).center)
             transition.updatePosition(node: self.reactionsButton, position: CGRect(origin: CGPoint(x: 0.0, y: completeSize.height - buttonSize.height - mentionsOffset - reactionsOffset), size: buttonSize).center)
             transition.updatePosition(node: self.pollVotesButton, position: CGRect(origin: CGPoint(x: 0.0, y: completeSize.height - buttonSize.height - mentionsOffset - reactionsOffset - pollVotesOffset), size: buttonSize).center)
+            transition.updatePosition(node: self.conceptsMuteExceptionsButton, position: CGRect(origin: CGPoint(x: 0.0, y: completeSize.height - buttonSize.height - mentionsOffset - reactionsOffset - pollVotesOffset - conceptsMuteExceptionsOffset), size: buttonSize).center)
         } else {
             transition.updatePosition(node: self.downButton, position: CGRect(origin: CGPoint(x: 0.0, y: 0.0), size: buttonSize).center)
             transition.updatePosition(node: self.upButton, position: CGRect(origin: CGPoint(x: 0.0, y: upOffset), size: buttonSize).center)
             transition.updatePosition(node: self.mentionsButton, position: CGRect(origin: CGPoint(x: 0.0, y: mentionsOffset), size: buttonSize).center)
             transition.updatePosition(node: self.reactionsButton, position: CGRect(origin: CGPoint(x: 0.0, y: mentionsOffset + reactionsOffset), size: buttonSize).center)
             transition.updatePosition(node: self.pollVotesButton, position: CGRect(origin: CGPoint(x: 0.0, y: mentionsOffset + reactionsOffset + pollVotesOffset), size: buttonSize).center)
+            transition.updatePosition(node: self.conceptsMuteExceptionsButton, position: CGRect(origin: CGPoint(x: 0.0, y: mentionsOffset + reactionsOffset + pollVotesOffset + conceptsMuteExceptionsOffset), size: buttonSize).center)
         }
         
         if let (rect, containerSize) = self.absoluteRect {

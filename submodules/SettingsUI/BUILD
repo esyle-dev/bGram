@@ -53,6 +53,7 @@ swift_library(
         "//submodules/OverlayStatusController:OverlayStatusController",
         "//submodules/PasswordSetupUI:PasswordSetupUI",
         "//submodules/PassportUI:PassportUI",
+        "//submodules/BetaFeatures:BetaFeatures",
         "//submodules/PasscodeUI:PasscodeUI",
         "//submodules/PeerAvatarGalleryUI:PeerAvatarGalleryUI",
         "//submodules/PhoneInputNode:PhoneInputNode",

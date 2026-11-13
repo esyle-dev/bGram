@@ -240,6 +240,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
 
 @objc(AppDelegate) class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, UNUserNotificationCenterDelegate, URLSessionDelegate, URLSessionTaskDelegate {
     @objc var window: UIWindow?
+    private var conceptsOfflineDemoPanel: ConceptsOfflineDemoPanel?
     var nativeWindow: (UIWindow & WindowHost)?
     var mainWindow: Window1!
     private var statusBarHost: ApplicationStatusBarHost?
@@ -706,12 +707,32 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         
         let isUITest = CommandLine.arguments.contains("--ui-test")
+        // Локальные концепты: тестовый сервер Telegram с отдельной постоянной папкой данных
+        // (тестовые аккаунты и чаты сохраняются между запусками). Без флага поведение не меняется.
+        // Папка лежит внутри Library: performAppGroupUpgrades удаляет прочие каталоги группы.
+        let isConceptsTestBackend = !isUITest && CommandLine.arguments.contains("--concepts-test-backend")
+        // Локальные концепты: офлайн-демо без сервера. Сеть никогда не отвечает, аккаунт и
+        // вымышленные чаты записываются в отдельную папку данных (ConceptsOfflineDemo.swift).
+        let isConceptsOfflineDemo = !isUITest && !isConceptsTestBackend && CommandLine.arguments.contains("--concepts-offline-demo")
+        conceptsOfflineDemoEnabled = isConceptsOfflineDemo
+        if let index = CommandLine.arguments.firstIndex(of: "--concepts-demo-compact"), index + 1 < CommandLine.arguments.count, let value = Double(CommandLine.arguments[index + 1]) {
+            conceptsDemoWindowHeightReduction = CGFloat(value)
+        }
 
         let rootPath: String
         if isUITest {
             let testDataPath = appGroupUrl.path + "/telegram-ui-tests-data"
             let _ = try? FileManager.default.removeItem(atPath: testDataPath)
             rootPath = rootPathForBasePath(testDataPath)
+        } else if isConceptsTestBackend {
+            rootPath = rootPathForBasePath(appGroupUrl.path + "/Library/concepts-test-backend")
+        } else if isConceptsOfflineDemo {
+            // `--concepts-demo-data <имя>` — отдельная чистая база для съёмки (ничего не удаляется).
+            var demoFolder = "concepts-offline-demo"
+            if let index = CommandLine.arguments.firstIndex(of: "--concepts-demo-data"), index + 1 < CommandLine.arguments.count {
+                demoFolder += "-" + CommandLine.arguments[index + 1]
+            }
+            rootPath = rootPathForBasePath(appGroupUrl.path + "/Library/" + demoFolder)
         } else {
             rootPath = rootPathForBasePath(appGroupUrl.path)
         }
@@ -1353,6 +1374,11 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             }
             |> deliverOnMainQueue
             |> map { accountAndSettings -> UnauthorizedApplicationContext? in
+                if conceptsOfflineDemoEnabled, let (account, _) = accountAndSettings {
+                    // Вместо экрана входа сразу авторизуемся демо-аккаунтом.
+                    let _ = ConceptsOfflineDemo.signIn(accountManager: sharedApplicationContext.sharedContext.accountManager, account: account).startStandalone()
+                    return nil
+                }
                 return accountAndSettings.flatMap { account, otherAccountPhoneNumbers in
                     return UnauthorizedApplicationContext(apiId: buildConfig.apiId, apiHash: buildConfig.apiHash, sharedContext: sharedApplicationContext.sharedContext, account: account, otherAccountPhoneNumbers: otherAccountPhoneNumbers)
                 }
@@ -1395,6 +1421,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
 
                     self.mainWindow.debugAction = nil
                     self.mainWindow.viewController = context.rootController
+                    if conceptsOfflineDemoEnabled, self.conceptsOfflineDemoPanel == nil, let window = self.window {
+                        self.conceptsOfflineDemoPanel = ConceptsOfflineDemoPanel(context: context.context, window: window)
+                    }
                     
                     if firstTime {
                         let layer = context.rootController.view.layer

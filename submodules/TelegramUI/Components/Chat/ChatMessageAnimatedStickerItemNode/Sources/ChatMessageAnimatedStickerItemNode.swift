@@ -2629,6 +2629,8 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
         }
     }
     
+    private let conceptsSwipe = ConceptsSwipeController()
+
     private var playedSwipeToReplyHaptic = false
     @objc private func swipeToReplyGesture(_ recognizer: ChatSwipeToReplyRecognizer) {
         var offset: CGFloat = 0.0
@@ -2652,6 +2654,7 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
                     self.swipeToReplyFeedback?.prepareImpact()
                 }
                 self.item?.controllerInteraction.cancelInteractiveKeyboardGestures()
+                self.conceptsSwipe.began(node: self)
             case .changed:
                 var translation = recognizer.translation(in: self.view)
                 func rubberBandingOffset(offset: CGFloat, bandingStart: CGFloat) -> CGFloat {
@@ -2709,26 +2712,32 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
                         self.playedSwipeToReplyHaptic = true
                         self.swipeToReplyFeedback?.impact(.heavy)
                     }
+
+                    if case .reply = self.currentSwipeAction, let item = self.item {
+                        self.conceptsSwipe.changed(node: self, item: item, centerNode: swipeToReplyNode, translation: recognizer.translation(in: self.view), threshold: swipeOffset)
+                    }
                 }
             case .cancelled, .ended:
                 self.swipeToReplyFeedback = nil
-                
+
                 let translation = recognizer.translation(in: self.view)
-                
-                let gestureRecognized: Bool
+
+                var gestureRecognized: Bool
                 if recognizer.allowBothDirections {
                     gestureRecognized = abs(translation.x) > swipeOffset
                 } else {
                     gestureRecognized = translation.x < -swipeOffset
                 }
-            
+                if let recognized = self.conceptsSwipe.ended(node: self, item: self.item, isEnded: recognizer.state == .ended) {
+                    gestureRecognized = recognized
+                }
                 if case .ended = recognizer.state, gestureRecognized {
                     if let item = self.item {
                         if let currentSwipeAction = currentSwipeAction {
                             switch currentSwipeAction {
                             case .none:
                                 break
-                            case .reply:
+                            case .reply, .hideFromScreenshot:
                                 item.controllerInteraction.setupReply(item.message.id)
                             }
                         }

@@ -496,7 +496,22 @@ final class NavigationModalContainer: ASDisplayNode, ASScrollViewDelegate, ASGes
         } else if self.isFlat {
         } else {
             transition.updateAlpha(node: self.dim, alpha: 1.0)
-            transition.animatePositionAdditive(node: self.container, offset: CGPoint(x: 0.0, y: self.bounds.height + self.container.bounds.height / 2.0 - (self.container.position.y - self.bounds.height)))
+            let offsetY = self.bounds.height + self.container.bounds.height / 2.0 - (self.container.position.y - self.bounds.height)
+            if transition.isAnimated && ProcessInfo.processInfo.arguments.contains("--concepts-demo-autopilot") {
+                // Локальные концепты (демо): карточка выезжает пружиной с лёгким отскоком у верхней точки.
+                let spring = CASpringAnimation(keyPath: "position.y")
+                spring.fromValue = offsetY
+                spring.toValue = 0.0
+                spring.isAdditive = true
+                spring.mass = 1.0
+                // Мягкая пружина: плавный выезд и один лёгкий перелёт без дрожи.
+                spring.stiffness = 190.0
+                spring.damping = 23.0
+                spring.duration = spring.settlingDuration
+                self.container.layer.add(spring, forKey: "conceptsSheetBounce")
+            } else {
+                transition.animatePositionAdditive(node: self.container, offset: CGPoint(x: 0.0, y: offsetY))
+            }
         }
     }
     

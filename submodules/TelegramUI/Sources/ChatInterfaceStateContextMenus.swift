@@ -1945,6 +1945,20 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             })))
         }
 
+        // Локальные концепты: «Исключить из мьюта…» в замьюченном канале — открывает редактор исключений.
+        if conceptsOfflineDemoEnabled, chatPresentationInterfaceState.peerIsMuted, let channel = message.peers[message.id.peerId] as? TelegramChannel, case .broadcast = channel.info, messages.count == 1 {
+            let isRussian = chatPresentationInterfaceState.strings.baseLanguageCode == "ru"
+            actions.append(.action(ContextMenuActionItem(text: isRussian ? "Звук для похожих" : "Unmute Similar", icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "News/Channel/MenuNotify"), color: theme.actionSheet.primaryTextColor)
+            }, action: { _, f in
+                f(.dismissWithoutContent)
+                // Демо-ролик: редактор открывается после полного закрытия меню, чтобы меню и шторка не накладывались.
+                Queue.mainQueue().after(0.28, {
+                    conceptsPresentMuteExceptionEditor(context: context, message: message, navigationController: controllerInteraction.navigationController())
+                })
+            })))
+        }
+
         if data.messageActions.options.contains(.forward) {
             if !isCopyProtected {
                 actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_ContextMenuForward, icon: { theme in

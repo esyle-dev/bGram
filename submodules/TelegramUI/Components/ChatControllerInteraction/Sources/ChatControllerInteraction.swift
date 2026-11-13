@@ -50,6 +50,9 @@ public struct ChatInterfacePollActionState: Equatable {
 public enum ChatControllerInteractionSwipeAction {
     case none
     case reply
+    /// The screenshot editor: the swipe hides the message from the screenshot (or shows it again), reported
+    /// through `setupReply`.
+    case hideFromScreenshot
 }
 
 public enum ChatControllerInteractionReaction {
@@ -339,6 +342,8 @@ public final class ChatControllerInteraction: ChatControllerInteractionProtocol 
     public let displayPollRestrictedToast: (EngineMessage.Id) -> Void
     
     public var canPlayMedia: Bool = false
+    /// Set by the screenshot editor: a bubble's text selection offers only "Cut from screenshot".
+    public var isScreenshotEditor: Bool = false
     public var hiddenMedia: [EngineMessage.Id: [EngineRawMedia]] = [:]
     public var expandedTranslationMessageStableIds: Set<UInt32> = Set()
     public var selectionState: ChatInterfaceSelectionState?

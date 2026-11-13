@@ -87,12 +87,15 @@ public final class UndoOverlayController: ViewController {
         public var isBlurred: Bool?
         public var sideInset: CGFloat?
         public var bottomInset: CGFloat?
+        /// Leaves out the content's icon: the title and text start at the leading edge.
+        public var hidesIcon: Bool?
         
-        public init(isNarrow: Bool? = nil, isBlurred: Bool? = nil, sideInset: CGFloat? = nil, bottomInset: CGFloat? = nil) {
+        public init(isNarrow: Bool? = nil, isBlurred: Bool? = nil, sideInset: CGFloat? = nil, bottomInset: CGFloat? = nil, hidesIcon: Bool? = nil) {
             self.isNarrow = isNarrow
             self.isBlurred = isBlurred
             self.sideInset = sideInset
             self.bottomInset = bottomInset
+            self.hidesIcon = hidesIcon
         }
     }
     

@@ -1627,6 +1627,10 @@ final class UndoOverlayControllerNode: ViewControllerTracingNode {
             self.isUserInteractionEnabled = true
         }
         
+        if self.appearance?.hidesIcon == true {
+            self.animationNode = nil
+        }
+        
         self.titleNode.isUserInteractionEnabled = false
         self.textNode.isUserInteractionEnabled = self.textNode.tapAttributeAction != nil
         self.iconNode?.isUserInteractionEnabled = false
@@ -1940,6 +1944,9 @@ final class UndoOverlayControllerNode: ViewControllerTracingNode {
             }
         } else if let multiAvatarsSize = self.multiAvatarsSize {
             leftInset = 13.0 + multiAvatarsSize.width + 20.0
+        }
+        if self.appearance?.hidesIcon == true {
+            leftInset = 16.0
         }
         
         let rightInset: CGFloat = 16.0

@@ -213,6 +213,8 @@ public enum TextSelectionAction: Equatable {
     case speak
     case translate
     case quote(range: Range<Int>)
+    /// Hide the selected fragment under a spoiler in the screenshot editor.
+    case cutFromScreenshot(range: Range<Int>)
 }
 
 public final class TextSelectionNode: ASDisplayNode {
@@ -818,6 +820,13 @@ public final class TextSelectionNode: ASDisplayNode {
                 self?.performAction(string, .share)
                 self?.cancelSelection()
             }))
+        }
+        
+        if self.enableCutFromScreenshot {
+            actions = [ContextMenuAction(content: .text(title: "Cut from screenshot", accessibilityLabel: "Cut from screenshot"), action: { [weak self] in
+                self?.performAction(string, .cutFromScreenshot(range: adjustedRange.lowerBound ..< adjustedRange.upperBound))
+                self?.cancelSelection()
+            })]
         }
         
         self.contextMenu?.dismiss()

@@ -4646,7 +4646,7 @@ public final class StoryItemSetContainerComponent: Component {
                                 }
                             case .translate:
                                 self.sendMessageContext.performTranslateTextAction(view: self, text: text.string, entities: [])
-                            case .quote:
+                            case .quote, .cutFromScreenshot:
                                 break
                             }
                         },

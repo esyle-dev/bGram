@@ -1238,6 +1238,10 @@ public protocol ChatController: ViewController {
     func removeAd(opaqueId: Data)
     
     func restrictedSendingContentsText() -> String
+    
+    /// Puts a reply to the message in the input panel and focuses the input, as the Reply action of the message's menu does.
+    /// Returns false, and does nothing, when the message is not in the part of the history that is loaded.
+    func setupReply(toMessageId messageId: EngineMessage.Id) -> Bool
 }
 
 public protocol ChatMessagePreviewItemNode: AnyObject {

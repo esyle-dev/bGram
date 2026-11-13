@@ -517,7 +517,7 @@ final class TextProcessingTextAreaComponent: Component {
                             }
                         case .translate:
                             break
-                        case .quote:
+                        case .quote, .cutFromScreenshot:
                             break
                         }
                     })

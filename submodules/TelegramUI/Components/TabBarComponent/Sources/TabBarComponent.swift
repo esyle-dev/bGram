@@ -1296,7 +1296,7 @@ private final class ItemComponent: Component {
                 alphaTransition.setAlpha(view: titleView, alpha: component.isCompact ? 0.0 : 1.0)
             }
 
-            if let badgeText = badgeValue, !badgeText.isEmpty {
+            if let badgeText = badgeValue, !badgeText.isEmpty, !(conceptsDemoWindowHeightReduction > 0.0) {
                 let badge: ComponentView<Empty>
                 var badgeTransition = transition
                 if let current = self.badge {

@@ -497,7 +497,8 @@ private func mappedInsertEntries(context: AccountContext, nodeInteraction: ChatL
                             },
                             requiresPremiumForMessaging: peerEntry.requiresPremiumForMessaging,
                             displayAsTopicList: peerEntry.displayAsTopicList,
-                            tags: chatListItemTags(location: location, accountPeerId: context.account.peerId, isPremium: isPremium, peer: peer.chatMainPeer, isUnread: combinedReadState?.isUnread ?? false, isMuted: isRemovedFromTotalUnreadCount, isContact: isContact, hasUnseenMentions: hasUnseenMentions, chatListFilters: chatListFilters)
+                            tags: chatListItemTags(location: location, accountPeerId: context.account.peerId, isPremium: isPremium, peer: peer.chatMainPeer, isUnread: combinedReadState?.isUnread ?? false, isMuted: isRemovedFromTotalUnreadCount, isContact: isContact, hasUnseenMentions: hasUnseenMentions, chatListFilters: chatListFilters),
+                            conceptsMuteExceptionCount: peerEntry.conceptsMuteExceptionCount
                         )),
                         editing: editing,
                         hasActiveRevealControls: hasActiveRevealControls,
@@ -869,7 +870,8 @@ private func mappedUpdateEntries(context: AccountContext, nodeInteraction: ChatL
                                 },
                                 requiresPremiumForMessaging: peerEntry.requiresPremiumForMessaging,
                                 displayAsTopicList: peerEntry.displayAsTopicList,
-                                tags: chatListItemTags(location: location, accountPeerId: context.account.peerId, isPremium: isPremium, peer: peer.chatMainPeer, isUnread: combinedReadState?.isUnread ?? false, isMuted: isRemovedFromTotalUnreadCount, isContact: isContact, hasUnseenMentions: hasUnseenMentions, chatListFilters: chatListFilters)
+                                tags: chatListItemTags(location: location, accountPeerId: context.account.peerId, isPremium: isPremium, peer: peer.chatMainPeer, isUnread: combinedReadState?.isUnread ?? false, isMuted: isRemovedFromTotalUnreadCount, isContact: isContact, hasUnseenMentions: hasUnseenMentions, chatListFilters: chatListFilters),
+                                conceptsMuteExceptionCount: peerEntry.conceptsMuteExceptionCount
                             )),
                             editing: editing,
                             hasActiveRevealControls: hasActiveRevealControls,
@@ -2203,16 +2205,18 @@ public final class ChatListNode: ListViewImpl {
             self.statePromise.get(),
             contacts,
             chatListFilters,
-            accountIsPremium
+            accountIsPremium,
+            conceptsMuteExceptionUnseen(postbox: context.account.postbox)
         )
-        |> mapToQueue { (hideArchivedFolderByDefault, displayArchiveIntro, storageInfo, savedMessagesPeer, updateAndFilter, state, contacts, chatListFilters, accountIsPremium) -> Signal<ChatListNodeListViewTransition, NoError> in
+        |> mapToQueue { (hideArchivedFolderByDefault, displayArchiveIntro, storageInfo, savedMessagesPeer, updateAndFilter, state, contacts, chatListFilters, accountIsPremium, conceptsMuteExceptionUnseen) -> Signal<ChatListNodeListViewTransition, NoError> in
             let (update, filter) = updateAndFilter
-            
+
             let previousHideArchivedFolderByDefaultValue = previousHideArchivedFolderByDefault.swap(hideArchivedFolderByDefault)
-            
+
             let innerIsMainTab = location == .chatList(groupId: .root) && chatListFilter == nil
-            
-            let (rawEntries, isLoading) = chatListNodeEntriesForView(view: update.list, state: state, savedMessagesPeer: savedMessagesPeer, foundPeers: state.foundPeers, hideArchivedFolderByDefault: hideArchivedFolderByDefault, displayArchiveIntro: displayArchiveIntro, mode: mode, chatListLocation: location, contacts: contacts, accountPeerId: accountPeerId, isMainTab: innerIsMainTab)
+
+            let (rawEntriesValue, isLoading) = chatListNodeEntriesForView(view: update.list, state: state, savedMessagesPeer: savedMessagesPeer, foundPeers: state.foundPeers, hideArchivedFolderByDefault: hideArchivedFolderByDefault, displayArchiveIntro: displayArchiveIntro, mode: mode, chatListLocation: location, contacts: contacts, accountPeerId: accountPeerId, isMainTab: innerIsMainTab)
+            let rawEntries = conceptsMuteExceptionApplyCounts(entries: rawEntriesValue, unseen: conceptsMuteExceptionUnseen)
             var isEmpty = true
             var entries = rawEntries.filter { entry in
                 switch entry {

@@ -505,6 +505,9 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             if let effectiveActiveServer = proxySettings?.effectiveActiveServer {
                 apiEnvironment = apiEnvironment.withUpdatedSocksProxySettings(effectiveActiveServer.mtProxySettings)
             }
+            if conceptsOfflineDemoEnabled {
+                apiEnvironment = apiEnvironment.withUpdatedSocksProxySettings(conceptsOfflineDemoProxySettings)
+            }
             
             apiEnvironment = apiEnvironment.withUpdatedNetworkSettings((networkSettings ?? NetworkSettings.defaultSettings).mtNetworkSettings)
             apiEnvironment.accessHostOverride = networkSettings?.backupHostOverride
@@ -610,7 +613,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             }
             #endif
             
-            if !supplementary {
+            if !supplementary && !conceptsOfflineDemoEnabled {
                 context.setDiscoverBackupAddressListSignal(MTBackupAddressSignals.fetchBackupIps(testingEnvironment, currentContext: context, additionalSource: wrappedAdditionalSource, phoneNumber: phoneNumber, mainDatacenterId: datacenterId))
                 let externalRequestVerificationStream = arguments.externalRequestVerificationStream
                 context.setExternalRequestVerification({ nonce in
@@ -1076,7 +1079,7 @@ public final class Network: NSObject {
             self.context.makeTcpConnectionInterface = self.baseTcpConnectionInterfaceFactory
         }
 
-        let updated = activeServer?.mtProxySettings
+        let updated = conceptsOfflineDemoEnabled ? conceptsOfflineDemoProxySettings : activeServer?.mtProxySettings
         self.context.updateApiEnvironment { environment in
             let current = environment?.socksProxySettings
             let updateNetwork: Bool

@@ -5,6 +5,7 @@ import Postbox
 import SwiftSignalKit
 import Display
 import TelegramCore
+import VisualQuote
 import TelegramPresentationData
 import TelegramUIPreferences
 import TextFormat
@@ -848,7 +849,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                 return
             }
             if strongSelf.context.sharedContext.energyUsageSettings.fullTranslucency {
-                strongSelf.backgroundNode.animateEvent(transition: transition, extendAnimation: false)
+                if conceptsDemoWindowHeightReduction == 0.0 { strongSelf.backgroundNode.animateEvent(transition: transition, extendAnimation: false) }
             }
         }
 
@@ -2138,7 +2139,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                     return
                 }
                 if self.context.sharedContext.energyUsageSettings.fullTranslucency {
-                    self.backgroundNode.animateEvent(transition: transition, extendAnimation: false)
+                    if conceptsDemoWindowHeightReduction == 0.0 { self.backgroundNode.animateEvent(transition: transition, extendAnimation: false) }
                 }
             })
             
@@ -2310,7 +2311,8 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
             self.overlayContextPanelNode = nil
         }
         
-        let inputPanelsInset: CGFloat = 8.0
+        // Демо-ролик (узкое окно): нижние контролы ближе к низу.
+        let inputPanelsInset: CGFloat = conceptsDemoWindowHeightReduction > 0.0 ? 2.0 : 8.0
         let accessoryPanelsInset: CGFloat = 8.0
         var inputPanelsHeight: CGFloat = 0.0
         
@@ -3604,7 +3606,7 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                 // carries the >80pt jump. Tap-to-dismiss and keyboard-open still animate.
                 let isSwipeDismissal = self.historyNode.usesCoreListBackend && dismissedInputByDragging
                 if self.context.sharedContext.energyUsageSettings.fullTranslucency && !isSwipeDismissal {
-                    self.backgroundNode.animateEvent(transition: transition, extendAnimation: false)
+                    if conceptsDemoWindowHeightReduction == 0.0 { self.backgroundNode.animateEvent(transition: transition, extendAnimation: false) }
                 }
             }
             //self.historyNode.didScrollWithOffset?(listBottomInset - previousListBottomInset, transition, nil)
@@ -5282,7 +5284,16 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                     messages.append(.message(text: "", attributes: attributes, inlineStickers: inlineStickers, mediaReference: mediaReference, threadId: self.chatLocation.threadId, replyToMessageId: self.chatPresentationInterfaceState.interfaceState.replyMessageSubject?.subjectModel, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: bubbleUpEmojiOrStickersets))
                 } else {
                 do {
-                    for text in breakChatInputText(trimChatInputText(inputText)) {
+                    // A reply to a photo detail: the first chunk leaves room for the region marker that
+                    // transformEnqueueMessages adds (see VisualQuoteTransport).
+                    let trimmedInputText = trimChatInputText(inputText)
+                    let textChunks: [NSAttributedString]
+                    if VisualQuoteRegion(innerSubject: self.chatPresentationInterfaceState.interfaceState.replyMessageSubject?.innerSubject) != nil {
+                        textChunks = VisualQuoteTransport.chunks(of: trimmedInputText, limit: 4096, split: breakChatInputText)
+                    } else {
+                        textChunks = breakChatInputText(trimmedInputText)
+                    }
+                    for text in textChunks {
                         if text.length != 0 {
                             var attributes: [MessageAttribute] = []
                             let entities: [MessageTextEntity]

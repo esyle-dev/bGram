@@ -1600,7 +1600,7 @@ private final class TextProcessingSheetComponent: Component {
                             dismiss(true)
                         }
                     }
-                case let .translate(_, applyResult):
+                case let .translate(_, applyResult, _):
                     if let applyResult {
                         actionButtonTitle = environmentValue.strings.TextProcessing_ActionApply
                         isMainActionEnabled = !self.contentExternalState.isProcessing && self.contentExternalState.result != nil
@@ -1725,18 +1725,25 @@ private final class TextProcessingSheetComponent: Component {
             }
 
             var displayInfoButton = true
+            // The top edge effect stays when only the information button is left out.
+            var hasTopEdgeEffect = true
             let titleString: String
             switch component.mode {
             case .edit:
                 titleString = environmentValue.strings.TextProcessing_TitleEdit
-            case .translate:
+            case let .translate(_, _, displaysInfoButton):
                 titleString = environmentValue.strings.TextProcessing_TitleTranslate
+                if !displaysInfoButton {
+                    displayInfoButton = false
+                }
             case .preview:
                 titleString = ""
                 displayInfoButton = false
+                hasTopEdgeEffect = false
             case .generate:
                 titleString = environmentValue.strings.TextProcessing_TitleAICompose
                 displayInfoButton = false
+                hasTopEdgeEffect = false
             }
             
 
@@ -1893,7 +1900,7 @@ private final class TextProcessingSheetComponent: Component {
                             }
                         )
                     ) : nil,
-                    hasTopEdgeEffect: displayInfoButton,
+                    hasTopEdgeEffect: hasTopEdgeEffect,
                     bottomItem: AnyComponent(
                         ActionButtonsComponent(
                             theme: theme,

@@ -3,6 +3,7 @@ import UIKit
 import AsyncDisplayKit
 import Postbox
 import TelegramCore
+import VoiceTranscriptScreen
 import SwiftSignalKit
 import WebProxyTransport
 import Display
@@ -125,6 +126,7 @@ import TextProcessingScreen
 import CreateBotScreen
 import EmojiStatusSelectionComponent
 import EntityKeyboard
+import TextSelectionNode
 
 private final class AccountUserInterfaceInUseContext {
     let subscribers = Bag<(Bool) -> Void>()
@@ -1853,6 +1855,10 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         })
     }
     
+    public func makeVoiceTranscriptScreen(context: AccountContext, messageId: EngineMessage.Id, peerTitle: String) -> ViewController {
+        return VoiceTranscriptScreen(context: context, messageId: messageId, peerTitle: peerTitle)
+    }
+    
     public func makeOverlayAudioPlayerController(context: AccountContext, chatLocation: ChatLocation, type: MediaManagerPlayerType, initialMessageId: MessageId, initialOrder: MusicPlaybackSettingsOrder, playlistLocation: SharedMediaPlaylistLocation?, parentNavigationController: NavigationController?) -> ViewController & OverlayAudioPlayerController {
         return OverlayAudioPlayerControllerImpl(context: context, chatLocation: chatLocation, type: type, initialMessageId: initialMessageId, initialOrder: initialOrder, playlistLocation: playlistLocation, parentNavigationController: parentNavigationController)
     }
@@ -2449,9 +2455,11 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 return nil
             },
             chatControllerNode: {
-                return nil
+                return screenshotHooks?.rootNode()
             },
-            presentGlobalOverlayController: { _, _ in },
+            presentGlobalOverlayController: { controller, arguments in
+                screenshotHooks?.present(controller, arguments)
+            },
             callPeer: { _, _ in },
             openConferenceCall: { _ in                
             },
@@ -2465,10 +2473,12 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             },
             openSearch: {
             },
-            setupReply: { _ in
+            setupReply: { messageId in
+                // In the screenshot editor the reply swipe hides the message instead.
+                screenshotHooks?.toggleHidden(messageId)
             },
             canSetupReply: { _ in
-                return .none
+                return screenshotHooks != nil ? .hideFromScreenshot : .none
             },
             canSendMessages: {
                 return false
@@ -2499,7 +2509,10 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             },
             editScheduledMessagesTime: { _ in
             },
-            performTextSelectionAction: { _, _, _, _, _ in
+            performTextSelectionAction: { message, _, _, _, action in
+                if let screenshotHooks, let message, case let .cutFromScreenshot(range) = action {
+                    screenshotHooks.cutText(message.id, range)
+                }
             },
             displayImportedMessageTooltip: { _ in
             },
@@ -2630,6 +2643,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             stickerSettings: ChatInterfaceStickerSettings(),
             presentationContext: ChatPresentationContext(context: context, backgroundNode: backgroundNode as? WallpaperBackgroundNode)
         )
+        controllerInteraction.isScreenshotEditor = screenshotHooks != nil
         
         var entryAttributes = ChatMessageEntryAttributes()
         entryAttributes.isCentered = isCentered

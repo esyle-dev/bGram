@@ -847,6 +847,11 @@ extension TelegramComposeAIMessageMode.CloudStyle.Reference {
     }
 }
 
+#if DEBUG
+/// What the server said the last time an AI compose request failed with a plain "generic" error. For finding out why, in debug builds.
+public var telegramAIComposeLastErrorDescription: String?
+#endif
+
 public enum TelegramAIComposeMessageError {
     case generic
     case nonPremiumFlood
@@ -891,6 +896,9 @@ func _internal_composeAIMessage(account: Account, text: ComposedRichMessage, mod
             if error.errorDescription == "AICOMPOSE_FLOOD_PREMIUM" {
                 return .fail(.nonPremiumFlood)
             } else {
+                #if DEBUG
+                telegramAIComposeLastErrorDescription = error.errorDescription
+                #endif
                 return .fail(.generic)
             }
         }
@@ -920,6 +928,9 @@ func _internal_composeAIMessage(account: Account, text: ComposedRichMessage, mod
             if error.errorDescription == "AICOMPOSE_FLOOD_PREMIUM" {
                 return .fail(.nonPremiumFlood)
             } else {
+                #if DEBUG
+                telegramAIComposeLastErrorDescription = error.errorDescription
+                #endif
                 return .fail(.generic)
             }
         }
@@ -961,6 +972,9 @@ func _internal_composeAIMessage(account: Account, text: ComposedRichMessage, mod
             if error.errorDescription == "AICOMPOSE_FLOOD_PREMIUM" {
                 return .fail(.nonPremiumFlood)
             } else {
+                #if DEBUG
+                telegramAIComposeLastErrorDescription = error.errorDescription
+                #endif
                 return .fail(.generic)
             }
         }

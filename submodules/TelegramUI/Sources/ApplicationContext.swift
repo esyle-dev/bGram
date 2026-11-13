@@ -417,7 +417,7 @@ final class AuthorizedApplicationContext {
                                 }
                             }
                             
-                            if inAppNotificationSettings.displayPreviews {
+                            if inAppNotificationSettings.displayPreviews && !conceptsOfflineDemoEnabled {
                                 let presentationData = strongSelf.context.sharedContext.currentPresentationData.with { $0 }
                                 strongSelf.notificationController.enqueue(ChatMessageNotificationItem(context: strongSelf.context, strings: presentationData.strings, dateTimeFormat: presentationData.dateTimeFormat, nameDisplayOrder: presentationData.nameDisplayOrder, messages: messages, threadData: threadData, tapAction: {
                                     if let strongSelf = self {

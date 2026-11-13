@@ -4,10 +4,24 @@ import Speech
 
 private var sharedRecognizers: [String: NSObject] = [:]
 
+/// A recognised word with its position in the audio, in seconds.
+public struct LocallyTimedWord {
+    public var text: String
+    public var start: Double
+    public var end: Double
+    
+    public init(text: String, start: Double, end: Double) {
+        self.text = text
+        self.start = start
+        self.end = end
+    }
+}
+
 private struct TranscriptionResult {
     var text: String
     var confidence: Float
     var isFinal: Bool
+    var words: [LocallyTimedWord]
 }
 
 private func transcribeAudio(path: String, locale: String) -> Signal<TranscriptionResult?, NoError> {
@@ -67,7 +81,10 @@ private func transcribeAudio(path: String, locale: String) -> Signal<Transcripti
                                     confidence += segment.confidence
                                 }
                                 confidence /= Float(result.bestTranscription.segments.count)
-                                subscriber.putNext(TranscriptionResult(text: result.bestTranscription.formattedString, confidence: confidence, isFinal: result.isFinal))
+                                let words = result.bestTranscription.segments.map { segment -> LocallyTimedWord in
+                                    return LocallyTimedWord(text: segment.substring, start: segment.timestamp, end: segment.timestamp + segment.duration)
+                                }
+                                subscriber.putNext(TranscriptionResult(text: result.bestTranscription.formattedString, confidence: confidence, isFinal: result.isFinal, words: words))
                                 
                                 if result.isFinal {
                                     subscriber.putCompletion()
@@ -104,15 +121,9 @@ public struct LocallyTranscribedAudio {
     public var isFinal: Bool
 }
 
-public func transcribeAudio(path: String, appLocale: String) -> Signal<LocallyTranscribedAudio?, NoError> {
+/// Recognises the audio in each locale and keeps the most confident result.
+private func bestTranscription(path: String, locales: [String]) -> Signal<TranscriptionResult?, NoError> {
     var signals: [Signal<TranscriptionResult?, NoError>] = []
-    var locales: [String] = []
-    if !locales.contains(Locale.current.identifier) {
-        locales.append(Locale.current.identifier)
-    }
-    if locales.isEmpty {
-        locales.append("en-US")
-    }
     for locale in locales {
         signals.append(transcribeAudio(path: path, locale: locale))
     }
@@ -126,12 +137,39 @@ public func transcribeAudio(path: String, appLocale: String) -> Signal<LocallyTr
     }
     
     return resultSignal
-    |> map { results -> LocallyTranscribedAudio? in
+    |> map { results -> TranscriptionResult? in
         let sortedResults = results.compactMap({ $0 }).sorted(by: { lhs, rhs in
             return lhs.confidence > rhs.confidence
         })
-        return sortedResults.first.flatMap { result -> LocallyTranscribedAudio in
+        return sortedResults.first
+    }
+}
+
+public func transcribeAudio(path: String, appLocale: String) -> Signal<LocallyTranscribedAudio?, NoError> {
+    var locales: [String] = []
+    if !locales.contains(Locale.current.identifier) {
+        locales.append(Locale.current.identifier)
+    }
+    if locales.isEmpty {
+        locales.append("en-US")
+    }
+    
+    return bestTranscription(path: path, locales: locales)
+    |> map { result -> LocallyTranscribedAudio? in
+        return result.flatMap { result -> LocallyTranscribedAudio in
             return LocallyTranscribedAudio(text: result.text, isFinal: result.isFinal)
         }
+    }
+}
+
+/// The same recognition, but the result is the words with the time each one is spoken. Nil when recognition is
+/// unavailable (no permission, unsupported language) or found no speech.
+public func transcribeAudioWithTimings(path: String, locales: [String]) -> Signal<[LocallyTimedWord]?, NoError> {
+    return bestTranscription(path: path, locales: locales)
+    |> map { result -> [LocallyTimedWord]? in
+        guard let result, !result.words.isEmpty else {
+            return nil
+        }
+        return result.words
     }
 }

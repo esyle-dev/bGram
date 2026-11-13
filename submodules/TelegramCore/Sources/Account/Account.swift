@@ -1391,7 +1391,7 @@ public class Account {
                         proxyState = AccountNetworkProxyState(address: proxyAddress, hasConnectionIssues: false)
                     }
                     
-                    if isUpdating {
+                    if isUpdating && !conceptsOfflineDemoEnabled {
                         return .updating(proxy: proxyState)
                     } else {
                         return .online(proxy: proxyState)

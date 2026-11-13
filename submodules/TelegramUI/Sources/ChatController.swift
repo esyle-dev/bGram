@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Postbox
+import VisualQuote
 import SwiftSignalKit
 import Display
 import AsyncDisplayKit
@@ -519,6 +520,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     weak var currentPinchSourceItemNode: ListViewItemNode?
     
     var screenCaptureManager: ScreenCaptureDetectionManager?
+    /// Offers the screenshot editor after a screenshot of a non-secret chat (ChatControllerOpenPostShareImage.swift).
+    var screenshotShareDisposable: Disposable?
     
     var volumeButtonsListener: VolumeButtonsListener?
     
@@ -869,8 +872,18 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             return true
         }
         
-        let controllerInteraction = ChatControllerInteraction(openMessage: { [weak self] message, params in
-            guard let self, self.isNodeLoaded, let message = self.chatDisplayNode.historyNode.messageInCurrentHistoryView(message.id)?._asMessage() else {
+        let controllerInteraction = ChatControllerInteraction(openMessage: { [weak self] requestedMessage, params in
+            guard let self, self.isNodeLoaded else {
+                return false
+            }
+            let message: Message
+            if let historyMessage = self.chatDisplayNode.historyNode.messageInCurrentHistoryView(requestedMessage.id)?._asMessage() {
+                message = historyMessage
+            } else if case .visualQuoteRegion = params.mediaSubject {
+                // A visual quote opens the quoted photo on its own (standalone gallery), so the original
+                // does not have to be in the loaded history: the reply header's copy of it is enough.
+                message = requestedMessage
+            } else {
                 return false
             }
             
@@ -4608,6 +4621,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                 } else {
                     self.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState({ $0.withUpdatedReplyMessageSubject(nil).withUpdatedSendMessageEffect(nil).withUpdatedPostSuggestionState(nil) }) }, completion: completion)
                 }
+            case .cutFromScreenshot:
+                break
             }
         }, displayImportedMessageTooltip: { [weak self] _ in
             guard let strongSelf = self else {
@@ -7101,6 +7116,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         self.shareStatusDisposable?.dispose()
         self.clearCacheDisposable?.dispose()
         self.bankCardDisposable?.dispose()
+        self.screenshotShareDisposable?.dispose()
         self.botCallbackAlertMessageDisposable?.dispose()
         self.selectMessagePollOptionDisposables?.dispose()
         for (_, info) in self.contextQueryStates {
@@ -7846,6 +7862,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         
         self.didAppear = true
         
+        ConceptsSwipeActions.enableIfNeeded(context: self.context)
+        
         self.chatDisplayNode.historyNode.experimentalSnapScrollToItem = false
         self.chatDisplayNode.historyNode.canReadHistory.set(self.computedCanReadHistoryPromise.get())
         self.chatDisplayNode.historyNode.areContentAnimationsEnabled = true
@@ -7949,6 +7967,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             self.checkedPeerChatServiceActions = true
             
             self.setupScreenCaptureDetectionIfNeeded()
+            self.setupScreenshotShareIfNeeded()
             
             if case let .peer(peerId) = self.chatLocation {
                 let _ = self.context.engine.peers.checkPeerChatServiceActions(peerId: peerId).startStandalone()
@@ -9007,6 +9026,10 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             defaultReplyMessageSubject = EngineMessageReplySubject(messageId: editingOriginalMessageId, quote: nil, innerSubject: nil)
         }
         
+        // A reply to a photo detail: the region leaves the reply subject here, for every send path, and
+        // rides in the text of the first message that has room for it (see VisualQuoteTransport).
+        let messages = VisualQuoteTransport.applyToOutgoing(messages, textLimit: 4096, captionLimit: Int(self.context.userLimits.maxCaptionLength))
+        
         return messages.map { message in
             var message = message
             
@@ -9114,6 +9137,68 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         return .single(false)
     }
     
+    // Reply decks of the messages being sent, by the index of the message
+    func takeMultiReplyTargets(_ messages: [EnqueueMessage]) -> [Int: [EngineMessage.Id]] {
+        var targets: [Int: [EngineMessage.Id]] = [:]
+        for (index, message) in messages.enumerated() {
+            if case let .message(_, _, _, _, _, replyToMessageId?, _, _, _, _) = message, let deckMessageIds = MultiReplyStore.shared.takePendingDeck(firstMessageId: replyToMessageId.messageId) {
+                targets[index] = deckMessageIds
+            }
+        }
+        return targets
+    }
+    
+    func registerMultiReplies(_ targets: [Int: [EngineMessage.Id]], messageIds: [EngineMessage.Id?]) {
+        let postbox = self.context.account.postbox
+        for (index, deckMessageIds) in targets {
+            guard index < messageIds.count, let messageId = messageIds[index] else {
+                continue
+            }
+            let _ = (postbox.transaction { transaction -> UInt32? in
+                return transaction.getMessage(messageId)?.stableId
+            }
+            |> deliverOnMainQueue).startStandalone(next: { [weak self] stableId in
+                guard let stableId else {
+                    return
+                }
+                MultiReplyStore.shared.register(stableId: stableId, messageIds: deckMessageIds)
+                self?.chatDisplayNode.historyNode.requestMessageUpdate(stableId: stableId)
+            })
+        }
+    }
+    
+    // A single message is an ordinary reply, several form a reply deck
+    func updateReplyDeck(_ messageIds: [EngineMessage.Id], innerSubject: EngineMessageReplyInnerSubject? = nil) {
+        guard let firstMessageId = messageIds.first else {
+            return
+        }
+        let historyNode = self.chatDisplayNode.historyNode
+        let messages = messageIds.compactMap { id -> EngineRawMessage? in
+            return historyNode.messageInCurrentHistoryView(id)?._asMessage() ?? MultiReplyStore.shared.cachedMessage(id: id)
+        }
+        let extraMessageIds = Array(messageIds.dropFirst())
+        if extraMessageIds.isEmpty {
+            MultiReplyStore.shared.clearPendingDeck(peerId: firstMessageId.peerId)
+        } else {
+            MultiReplyStore.shared.setPendingDeck(messageIds: messageIds, messages: messages)
+        }
+        let firstMessage = messages.first(where: { $0.id == firstMessageId })
+        self.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
+            var state = state.updatedInterfaceState {
+                $0.withUpdatedReplyMessageSubject(ChatInterfaceState.ReplyMessageSubject(
+                    messageId: firstMessageId,
+                    quote: nil,
+                    innerSubject: innerSubject,
+                    extraMessageIds: extraMessageIds.isEmpty ? nil : extraMessageIds
+                )).withoutSelectionState()
+            }
+            if let firstMessage {
+                state = state.updatedReplyMessage(firstMessage)
+            }
+            return state.updatedSearch(nil).updatedShowCommands(false)
+        })
+    }
+    
     func sendMessages(_ messages: [EnqueueMessage], media: Bool = false, postpone: Bool = false, commit: Bool = false) {
         if case let .customChatContents(customChatContents) = self.subject {
             customChatContents.enqueueMessages(messages: messages)
@@ -9153,8 +9238,11 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             if commit || !isScheduledMessages {
                 self.commitPurposefulAction()
                 
-                let _ = (enqueueMessages(account: self.context.account, peerId: peerId, messages: self.transformEnqueueMessages(messages, postpone: postpone))
-                |> deliverOnMainQueue).startStandalone(next: { [weak self] _ in
+                let transformedMessages = self.transformEnqueueMessages(messages, postpone: postpone)
+                let multiReplyTargets = self.takeMultiReplyTargets(transformedMessages)
+                let _ = (enqueueMessages(account: self.context.account, peerId: peerId, messages: transformedMessages)
+                |> deliverOnMainQueue).startStandalone(next: { [weak self] messageIds in
+                    self?.registerMultiReplies(multiReplyTargets, messageIds: messageIds)
                     if let strongSelf = self, strongSelf.presentationInterfaceState.subject != .scheduledMessages {
                         strongSelf.chatDisplayNode.historyNode.scrollToEndOfHistory()
                     }
@@ -9467,7 +9555,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             let replyMessageSubject = self.presentationInterfaceState.interfaceState.replyMessageSubject
             
             let sendPaidMessageStars = self.presentationInterfaceState.sendPaidMessageStars
-            if self.context.engine.messages.enqueueOutgoingMessageWithChatContextResult(to: peerId, threadId: self.chatLocation.threadId, botId: results.botId, result: result, replyToMessageId: replyMessageSubject?.subjectModel, hideVia: hideVia, silentPosting: silentPosting, scheduleTime: scheduleTime, sendPaidMessageStars: sendPaidMessageStars, postpone: postpone) {
+            if self.context.engine.messages.enqueueOutgoingMessageWithChatContextResult(to: peerId, threadId: self.chatLocation.threadId, botId: results.botId, result: result, replyToMessageId: VisualQuoteTransport.withoutRegion(replyMessageSubject?.subjectModel), hideVia: hideVia, silentPosting: silentPosting, scheduleTime: scheduleTime, sendPaidMessageStars: sendPaidMessageStars, postpone: postpone) {
                 self.chatDisplayNode.setupSendActionOnViewUpdate({ [weak self] in
                     if let strongSelf = self {
                         strongSelf.chatDisplayNode.collapseInput()
@@ -11043,6 +11131,14 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         }
         let scale: CGFloat = 1.0 - 0.06 * fraction
         transition.updateSublayerTransformScale(node: self.chatDisplayNode.historyNode, scale: scale)
+    }
+    
+    public func setupReply(toMessageId messageId: EngineMessage.Id) -> Bool {
+        guard self.chatDisplayNode.historyNode.messageInCurrentHistoryView(messageId) != nil else {
+            return false
+        }
+        self.interfaceInteraction?.setupReplyMessage(messageId, nil, { _, f in f() })
+        return true
     }
     
     public func restrictedSendingContentsText() -> String {

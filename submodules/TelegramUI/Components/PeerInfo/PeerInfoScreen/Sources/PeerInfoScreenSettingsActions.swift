@@ -53,6 +53,8 @@ extension PeerInfoScreenNode {
         switch section {
         case .avatar:
             self.controller?.openAvatarForEditing()
+        case .betaFeatures:
+            push(betaFeaturesScreen(context: self.context))
         case .edit:
             self.headerNode.navigationButtonContainer.performAction?(.edit, nil, nil)
         case .proxy:

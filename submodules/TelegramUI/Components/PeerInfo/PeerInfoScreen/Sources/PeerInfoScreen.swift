@@ -159,6 +159,7 @@ enum PeerInfoSettingsSection {
     case edit
     case proxy
     case stories
+    case betaFeatures
     case savedMessages
     case recentCalls
     case devices

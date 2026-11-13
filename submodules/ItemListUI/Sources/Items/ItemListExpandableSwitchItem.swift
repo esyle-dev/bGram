@@ -124,6 +124,7 @@ public class ItemListExpandableSwitchItem: ListViewItem, ItemListItem {
 private final class SubItemNode: HighlightTrackingButtonNode {
     private let textNode: ImmediateTextNode
     private var checkNode: CheckNode?
+    private var wasSelected = false
     private let separatorNode: ASDisplayNode
     
     private var theme: PresentationTheme?
@@ -151,11 +152,13 @@ private final class SubItemNode: HighlightTrackingButtonNode {
         action(item)
     }
     
-    func update(presentationData: ItemListPresentationData, item: ItemListExpandableSwitchItem.SubItem, action: @escaping (ItemListExpandableSwitchItem.SubItem) -> Void, size: CGSize, transition: ContainedViewLayoutTransition) {
+    func update(presentationData: ItemListPresentationData, item: ItemListExpandableSwitchItem.SubItem, isLast: Bool = false, action: @escaping (ItemListExpandableSwitchItem.SubItem) -> Void, size: CGSize, transition: ContainedViewLayoutTransition) {
         let themeUpdated = self.theme !== presentationData.theme
         
         self.item = item
         self.action = action
+        // У последней строки своего разделителя нет: границу группы рисует сама ячейка.
+        self.separatorNode.isHidden = isLast
         
         let leftInset: CGFloat = 60.0
         let separatorRightInset: CGFloat = 16.0
@@ -181,6 +184,18 @@ private final class SubItemNode: HighlightTrackingButtonNode {
         checkNode.frame = CGRect(origin: CGPoint(x: floor((leftInset - checkSize.width) / 2.0), y: floor((size.height - checkSize.height) / 2.0)), size: checkSize)
         
         checkNode.setSelected(item.isSelected, animated: transition.isAnimated)
+        if item.isSelected && !self.wasSelected && conceptsDemoWindowHeightReduction > 0.0 {
+            // Демо-ролик: галочка появляется со скейлом и мягким отскоком.
+            let bounce = CASpringAnimation(keyPath: "transform.scale")
+            bounce.fromValue = 0.4
+            bounce.toValue = 1.0
+            bounce.mass = 1.0
+            bounce.stiffness = 300.0
+            bounce.damping = 18.0
+            bounce.duration = bounce.settlingDuration
+            checkNode.layer.add(bounce, forKey: "demoCheckBounce")
+        }
+        self.wasSelected = item.isSelected
         
         transition.updateFrame(node: self.separatorNode, frame: CGRect(origin: CGPoint(x: leftInset, y: size.height - UIScreenPixel), size: CGSize(width: size.width - leftInset - separatorRightInset, height: UIScreenPixel)))
         
@@ -204,6 +219,10 @@ public class ItemListExpandableSwitchItemNode: ListViewItemNode, ItemListItemNod
     private let titleNode: TextNode
     private let titleValueNode: TextNode
     private let expandArrowNode: ASImageNode
+    /// Локальные концепты: центр шеврона в координатах узла (автопилот тапает прямо в него).
+    public var demoExpandArrowCenter: CGPoint {
+        return self.expandArrowNode.position
+    }
     private var switchNode: ASDisplayNode & ItemListSwitchNodeImpl
     private let switchGestureNode: ASDisplayNode
     private var disabledOverlayNode: ASDisplayNode?
@@ -504,7 +523,8 @@ public class ItemListExpandableSwitchItemNode: ListViewItemNode, ItemListItemNod
                                     bottomStripeInset = 0.0
                                     hasBottomCorners = true
                                     strongSelf.bottomStripeNode.isHidden = hasCorners
-                                    strongSelf.bottomTopStripeNode.isHidden = false
+                                    // Последняя строка группы: разделитель между ней и вложенными строками нужен только в раскрытом виде.
+                                    strongSelf.bottomTopStripeNode.isHidden = !item.isExpanded
                             }
                             
                             strongSelf.maskNode.image = hasCorners ? PresentationResourcesItemList.cornersImage(item.presentationData.theme, top: hasTopCorners, bottom: hasBottomCorners, glass: item.systemStyle == .glass) : nil
@@ -584,7 +604,7 @@ public class ItemListExpandableSwitchItemNode: ListViewItemNode, ItemListItemNod
                     var validIds: [AnyHashable] = []
                     let subItemSize = CGSize(width: params.width - params.leftInset - params.rightInset, height: item.systemStyle == .glass ? 52.0 : 44.0)
                     var nextSubItemPosition = CGPoint(x: params.leftInset, y: 0.0)
-                    for subItem in item.subItems {
+                    for (subItemIndex, subItem) in item.subItems.enumerated() {
                         validIds.append(subItem.id)
                         
                         let subItemNode: SubItemNode
@@ -598,10 +618,52 @@ public class ItemListExpandableSwitchItemNode: ListViewItemNode, ItemListItemNod
                             strongSelf.subItemContainer.addSubnode(subItemNode)
                         }
                         let subItemFrame = CGRect(origin: nextSubItemPosition, size: subItemSize)
-                        subItemNode.update(presentationData: item.presentationData, item: subItem, action: item.subAction, size: subItemSize, transition: subItemNodeTransition)
+                        subItemNode.update(presentationData: item.presentationData, item: subItem, isLast: subItemIndex == item.subItems.count - 1, action: item.subAction, size: subItemSize, transition: subItemNodeTransition)
                         subItemNodeTransition.updateFrame(node: subItemNode, frame: subItemFrame)
                         
                         nextSubItemPosition.y += subItemSize.height
+                    }
+                    if conceptsDemoWindowHeightReduction > 0.0, item.isExpanded, currentItem?.isExpanded == false {
+                        // Демо-ролик: при раскрытии ячейки появляются по очереди: скейл + прозрачность + размытие, с отскоком.
+                        let width = params.width - params.leftInset - params.rightInset
+                        for (index, subItem) in item.subItems.enumerated() {
+                            guard let subItemNode = strongSelf.subItemNodes[subItem.id] else {
+                                continue
+                            }
+                            let begin = CACurrentMediaTime() + 0.06 + Double(index) * 0.055
+                            let bounce = CASpringAnimation(keyPath: "transform.scale")
+                            bounce.fromValue = 0.82
+                            bounce.toValue = 1.0
+                            bounce.mass = 1.0
+                            bounce.stiffness = 325.0
+                            bounce.damping = 15.0
+                            bounce.duration = bounce.settlingDuration
+                            bounce.beginTime = begin
+                            bounce.fillMode = .backwards
+                            subItemNode.layer.add(bounce, forKey: "demoBounce")
+                            let fade = CABasicAnimation(keyPath: "opacity")
+                            fade.fromValue = 0.0
+                            fade.toValue = 1.0
+                            fade.duration = 0.26
+                            fade.beginTime = begin
+                            fade.fillMode = .backwards
+                            subItemNode.layer.add(fade, forKey: "demoFade")
+                            let veil = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialLight))
+                            veil.isUserInteractionEnabled = false
+                            veil.frame = CGRect(x: 0.0, y: 0.0, width: width, height: item.systemStyle == .glass ? 52.0 : 44.0)
+                            subItemNode.view.addSubview(veil)
+                            let veilFade = CABasicAnimation(keyPath: "opacity")
+                            veilFade.fromValue = 1.0
+                            veilFade.toValue = 0.0
+                            veilFade.duration = 0.34
+                            veilFade.beginTime = begin
+                            veilFade.fillMode = .both
+                            veilFade.isRemovedOnCompletion = false
+                            veil.layer.add(veilFade, forKey: "veil")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06 + Double(index) * 0.055 + 0.4, execute: { [weak veil] in
+                                veil?.removeFromSuperview()
+                            })
+                        }
                     }
                     var removeIds: [AnyHashable] = []
                     for (id, itemNode) in strongSelf.subItemNodes {

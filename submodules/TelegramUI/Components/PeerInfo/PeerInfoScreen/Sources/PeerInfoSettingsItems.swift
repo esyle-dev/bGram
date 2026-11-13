@@ -222,6 +222,9 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
         }
     }
     
+    items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 0, text: "βeta Features", icon: PresentationResourcesSettings.aiTools, action: {
+        interaction.openSettings(.betaFeatures)
+    }))
     items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 1, text: presentationData.strings.Settings_SavedMessages, icon: PresentationResourcesSettings.savedMessages, action: {
         interaction.openSettings(.savedMessages)
     }))

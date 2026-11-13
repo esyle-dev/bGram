@@ -1371,7 +1371,8 @@ public final class TextProcessingScreenSendContextActions {
 
 public enum TextProcessingScreenMode {
     case edit(saveRestoreStateId: EnginePeer.Id?, completion: (ComposedRichMessage) -> Void, send: ((ComposedRichMessage) -> Void)?, sendContextActions: TextProcessingScreenSendContextActions?)
-    case translate(fromLanguage: String?, applyResult: ((ComposedRichMessage) -> Void)?)
+    /// `displaysInfoButton` is false when the screen is opened from one that already has an information screen of its own on top.
+    case translate(fromLanguage: String?, applyResult: ((ComposedRichMessage) -> Void)?, displaysInfoButton: Bool = true)
     case preview(style: TelegramComposeAIMessageMode.CloudStyle.Custom, authorPeer: EnginePeer?, initialPreview: AIMessageStylePreview?, isAlreadyAdded: Bool, added: () -> Void)
     case generate(completion: (ComposedRichMessage) -> Void)
 }
@@ -1454,6 +1455,7 @@ public protocol SharedAccountContext: AnyObject {
     func messageFromPreloadedChatHistoryViewForLocation(id: EngineMessage.Id, location: ChatHistoryLocationInput, context: AccountContext, chatLocation: ChatLocation, subject: ChatControllerSubject?, chatLocationContextHolder: Atomic<ChatLocationContextHolder?>, tag: EngineHistoryViewInputTag?) -> Signal<(EngineMessage.Index?, Bool), NoError>
     
     func makeOverlayAudioPlayerController(context: AccountContext, chatLocation: ChatLocation, type: MediaManagerPlayerType, initialMessageId: EngineMessage.Id, initialOrder: MusicPlaybackSettingsOrder, playlistLocation: SharedMediaPlaylistLocation?, parentNavigationController: NavigationController?) -> ViewController & OverlayAudioPlayerController
+    func makeVoiceTranscriptScreen(context: AccountContext, messageId: EngineMessage.Id, peerTitle: String) -> ViewController
     func makePeerInfoController(context: AccountContext, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)?, peer: EnginePeer, mode: PeerInfoControllerMode, avatarInitiallyExpanded: Bool, fromChat: Bool, requestsContext: PeerInvitationImportersContext?) -> ViewController?
     func makeChannelAdminController(context: AccountContext, peerId: EnginePeer.Id, adminId: EnginePeer.Id, initialParticipant: ChannelParticipant) -> ViewController?
     func makeDeviceContactInfoController(context: ShareControllerAccountContext, environment: ShareControllerEnvironment, subject: DeviceContactInfoSubject, completed: (() -> Void)?, cancelled: (() -> Void)?) -> ViewController

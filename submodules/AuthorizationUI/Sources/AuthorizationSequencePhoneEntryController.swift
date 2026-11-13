@@ -204,6 +204,11 @@ public final class AuthorizationSequencePhoneEntryController: ViewController, MF
     }
     
     private func loadAndPresentPasskey(force: Bool) {
+        // Локальные концепты: на тестовом сервере passkey-параметры приходят всегда, а пустое окно
+        // ASPresentationAnchor перекрывает экран входа в симуляторе. В боевой среде без изменений.
+        if self.isTestingEnvironment {
+            return
+        }
         if #available(iOS 16.0, *) {
             Task { @MainActor [weak self] in
                 guard let self, let account = self.account else {

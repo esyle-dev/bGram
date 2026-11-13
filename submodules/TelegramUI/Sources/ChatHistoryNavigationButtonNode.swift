@@ -8,6 +8,7 @@ import AnimatedCountLabelNode
 import GlassBackgroundComponent
 import ComponentFlow
 import ComponentDisplayAdapters
+import AppBundle
 
 private let badgeFont = Font.with(size: 13.0, traits: [.monospacedNumbers])
 
@@ -17,6 +18,17 @@ enum ChatHistoryNavigationButtonType {
     case mentions
     case reactions
     case pollVotes
+    // Локальные концепты: посты из исключений канала без звука.
+    case conceptsMuteExceptions
+}
+
+private func conceptsMuteExceptionsButtonImage() -> UIImage? {
+    return generateImage(CGSize(width: 38.0, height: 38.0), contextGenerator: { size, context in
+        context.clear(CGRect(origin: CGPoint(), size: size))
+        if let image = generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Unmute"), color: UIColor.white), let cgImage = image.cgImage {
+            context.draw(cgImage, in: CGRect(origin: CGPoint(x: floor((size.width - image.size.width) / 2.0), y: floor((size.height - image.size.height) / 2.0)), size: image.size))
+        }
+    })?.withRenderingMode(.alwaysTemplate)
 }
 
 class ChatHistoryNavigationButtonNode: ContextControllerSourceNode {
@@ -51,6 +63,7 @@ class ChatHistoryNavigationButtonNode: ContextControllerSourceNode {
     private var preferClearGlass: Bool
     private let type: ChatHistoryNavigationButtonType
     
+    
     init(theme: PresentationTheme, preferClearGlass: Bool, backgroundNode: WallpaperBackgroundNode, type: ChatHistoryNavigationButtonType) {
         self.theme = theme
         self.preferClearGlass = preferClearGlass
@@ -72,6 +85,8 @@ class ChatHistoryNavigationButtonNode: ContextControllerSourceNode {
             self.imageView.image = PresentationResourcesChat.chatHistoryReactionsButtonImage(theme)
         case .pollVotes:
             self.imageView.image = PresentationResourcesChat.chatHistoryPollVotesButtonImage(theme)
+        case .conceptsMuteExceptions:
+            self.imageView.image = conceptsMuteExceptionsButtonImage()
         }
         
         self.badgeBackgroundView = GlassBackgroundView()
@@ -131,6 +146,8 @@ class ChatHistoryNavigationButtonNode: ContextControllerSourceNode {
                 self.imageView.image = PresentationResourcesChat.chatHistoryReactionsButtonImage(theme)
             case .pollVotes:
                 self.imageView.image = PresentationResourcesChat.chatHistoryPollVotesButtonImage(theme)
+            case .conceptsMuteExceptions:
+                self.imageView.image = conceptsMuteExceptionsButtonImage()
             }
             
             self.badgeBackgroundView.update(size: self.badgeBackgroundView.bounds.size, cornerRadius: self.badgeBackgroundView.bounds.height * 0.5, isDark: theme.overallDarkAppearance, tintColor: .init(kind: .custom(style: .default, color: theme.chat.inputPanel.actionControlFillColor)), transition: .immediate)
