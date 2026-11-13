@@ -284,6 +284,8 @@ public final class TextSelectionNode: ASDisplayNode {
     public var enableCopy: Bool = true
     public var enableLookup: Bool = true
     public var enableQuote: Bool = false
+    /// The screenshot editor's mode: the menu offers only "Cut from screenshot".
+    public var enableCutFromScreenshot: Bool = false
     public var enableTranslate: Bool = true
     public var enableSpeak: Bool = false
     public var enableShare: Bool = true

@@ -139,8 +139,6 @@ class ChatListFilterSettingsHeaderItemNode: ListViewItemNode {
         return { [weak self] item, params, neighbors in
             let isHidden = params.width > params.availableHeight && params.availableHeight < 400.0
             
-            let leftInset: CGFloat = 32.0 + params.leftInset
-            
             let animationName: String
             var size = 192
             var insetDifference = 100
