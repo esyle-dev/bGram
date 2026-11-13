@@ -58,6 +58,10 @@ private final class ConceptsOfflineNetworkSession: NetworkEngineSession {
     func movePendingRequests(to service: NetworkEngineRequestService, deadline: Double, completion: @escaping () -> Void) {
         completion()
     }
+
+    func movePendingRequests(to service: NetworkEngineRequestService, completion: @escaping () -> Void) {
+        completion()
+    }
 }
 
 /// Тот же переход, что после настоящего входа: состояние авторизации в Postbox и смена записи
