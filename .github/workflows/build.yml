@@ -26,9 +26,12 @@ jobs:
           ls /Applications/ | grep -i xcode || true
           if [ -d "/Applications/Xcode_$XCODE_VERSION.app" ]; then
             sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+            echo "XCODE_OVERRIDE=" >> $GITHUB_ENV
           else
             echo "Xcode $XCODE_VERSION not found, falling back to default toolchain:"
             xcodebuild -version || true
+            # The pinned Xcode is unavailable on the runner: let Make.py accept the installed one.
+            echo "XCODE_OVERRIDE=--overrideXcodeVersion" >> $GITHUB_ENV
           fi
 
       - name: Create canonical source directory
@@ -87,6 +90,7 @@ jobs:
 
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
           python3 -u build-system/Make/Make.py \
+            $XCODE_OVERRIDE \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
             build \
             --configurationPath="build-system/appstore-configuration.json" \
