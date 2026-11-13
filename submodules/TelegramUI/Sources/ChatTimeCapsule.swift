@@ -44,7 +44,7 @@ func chatMessageDisplayTimeCapsuleOptions(selfController: ChatControllerImpl, no
     }
     items.append(ActionSheetButtonItem(title: isRussian ? "Выбрать время…" : "Choose a time…", action: { [weak actionSheet] in
         actionSheet?.dismissAnimated()
-        selfController.presentScheduleTimePicker(completion: { [weak selfController] result in
+        selfController.presentScheduleTimePicker(completion: { [weak selfController] (result: ChatScheduleTimeScreen.Result) in
             guard let selfController else {
                 return
             }
