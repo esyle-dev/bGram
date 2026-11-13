@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: macos-15
     permissions:
       contents: write
       actions: write
@@ -21,18 +21,31 @@ jobs:
 
       - name: Set active Xcode path
         run: |
+          set -x
           XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
           echo "Required Xcode: $XCODE_VERSION"
           ls /Applications/ | grep -i xcode || true
-          if [ -d "/Applications/Xcode_$XCODE_VERSION.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
-            echo "XCODE_OVERRIDE=" >> $GITHUB_ENV
-          else
-            echo "Xcode $XCODE_VERSION not found, falling back to default toolchain:"
+          # Use the pinned Xcode when the image has it, otherwise the newest installed 26.x
+          # (macos-15 tops out at 26.3) and let Make.py accept it via --overrideXcodeVersion.
+          BEST=""
+          for v in "$XCODE_VERSION" 26.6 26.5 26.4.1 26.4 26.3 26.2 26.1.1 26.1 26.0.1 26.0; do
+            if [ -d "/Applications/Xcode_$v.app" ]; then BEST="$v"; break; fi
+          done
+          if [ -n "$BEST" ]; then
+            sudo xcode-select -s "/Applications/Xcode_$BEST.app/Contents/Developer"
+            echo "Using Xcode $BEST"
             xcodebuild -version || true
-            # The pinned Xcode is unavailable on the runner: let Make.py accept the installed one.
+            if [ "$BEST" != "$XCODE_VERSION" ]; then
+              echo "XCODE_OVERRIDE=--overrideXcodeVersion" >> $GITHUB_ENV
+            else
+              echo "XCODE_OVERRIDE=" >> $GITHUB_ENV
+            fi
+          else
+            echo "No Xcode 26 found on the image"
+            xcodebuild -version || true
             echo "XCODE_OVERRIDE=--overrideXcodeVersion" >> $GITHUB_ENV
           fi
+          uname -m
 
       - name: Create canonical source directory
         run: |
