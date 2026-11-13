@@ -9,13 +9,14 @@ import UndoUI
 import ChatMessageItem
 import ChatMessageItemView
 import PostShareImageScreen
+import BetaFeatures
 
 extension ChatControllerImpl {
     /// After a screenshot of a one-to-one chat, offers to share the captured messages as an edited image
     /// ("Screenshot taken" toast, "Customize" opens the editor). Only private dialogs with a person: not groups,
     /// channels, bots or Saved Messages, and not secret chats, where the screenshot is reported to the other side.
     func setupScreenshotShareIfNeeded() {
-        guard self.screenshotShareDisposable == nil, case let .peer(peerId) = self.chatLocation, peerId.namespace == Namespaces.Peer.CloudUser, peerId != self.context.account.peerId else {
+        guard BetaFeatures.isEnabled(.customizeScreenshot), self.screenshotShareDisposable == nil, case let .peer(peerId) = self.chatLocation, peerId.namespace == Namespaces.Peer.CloudUser, peerId != self.context.account.peerId else {
             return
         }
         self.screenshotShareDisposable = (screenCaptureEvents()

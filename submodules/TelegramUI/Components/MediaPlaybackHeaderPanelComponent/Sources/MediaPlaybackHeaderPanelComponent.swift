@@ -13,6 +13,7 @@ import UndoUI
 import OverlayStatusController
 import TelegramUIPreferences
 import PresentationDataUtils
+import BetaFeatures
 
 public final class MediaPlaybackHeaderPanelComponent: Component {
     public let context: AccountContext
@@ -369,7 +370,7 @@ public final class MediaPlaybackHeaderPanelComponent: Component {
                                 default:
                                     break
                                 }
-                            } else if case .voice = component.data.kind {
+                            } else if case .voice = component.data.kind, BetaFeatures.isEnabled(.voiceTranscript) {
                                 var peerTitle = ""
                                 if let displayData = component.data.item.displayData, case let .voice(author, _) = displayData, let author {
                                     let presentationData = component.context.sharedContext.currentPresentationData.with { $0 }

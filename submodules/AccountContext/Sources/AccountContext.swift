@@ -1476,6 +1476,9 @@ public protocol SharedAccountContext: AnyObject {
     ) -> ChatHistoryListNode
     func subscribeChatListData(context: AccountContext, location: ChatListControllerLocation) -> Signal<EngineChatList, NoError>
     func makeChatMessagePreviewItem(context: AccountContext, messages: [EngineRawMessage], theme: PresentationTheme, strings: PresentationStrings, wallpaper: TelegramWallpaper, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, dateTimeFormat: PresentationDateTimeFormat, nameOrder: PresentationPersonNameOrder, forcedResourceStatus: FileMediaResourceStatus?, tapMessage: ((EngineRawMessage) -> Void)?, clickThroughMessage: ((UIView?, CGPoint?) -> Void)?, backgroundNode: ASDisplayNode?, availableReactions: AvailableReactions?, accountPeer: EngineRawPeer?, isCentered: Bool, isPreview: Bool, isStandalone: Bool, rank: String?, rankRole: ChatRankInfoScreenRole?, isGiftMessageComposerPreview: Bool) -> ListViewItem
+    /// A chat bubble for the screenshot editor: its text can be selected, and the selection menu offers only
+    /// "Cut from screenshot", which reports the selected range of the message text through `hooks`.
+    func makeChatScreenshotMessageItem(context: AccountContext, messages: [EngineMessage], theme: PresentationTheme, strings: PresentationStrings, wallpaper: TelegramWallpaper, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, dateTimeFormat: PresentationDateTimeFormat, nameOrder: PresentationPersonNameOrder, backgroundNode: ASDisplayNode?, availableReactions: AvailableReactions?, accountPeer: EnginePeer?, hooks: ChatScreenshotMessageItemHooks) -> ListViewItem
     func makeChatMessageDateHeaderItem(context: AccountContext, timestamp: Int32, theme: PresentationTheme, strings: PresentationStrings, wallpaper: TelegramWallpaper, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, dateTimeFormat: PresentationDateTimeFormat, nameOrder: PresentationPersonNameOrder) -> ListViewItemHeader
     func makeChatMessageAvatarHeaderItem(context: AccountContext, timestamp: Int32, peer: EngineRawPeer, message: EngineRawMessage, theme: PresentationTheme, strings: PresentationStrings, wallpaper: TelegramWallpaper, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, dateTimeFormat: PresentationDateTimeFormat, nameOrder: PresentationPersonNameOrder) -> ListViewItemHeader
     func makePeerSharedMediaController(context: AccountContext, peerId: EnginePeer.Id) -> ViewController?
@@ -2180,5 +2183,24 @@ public struct GiftConfiguration {
         } else {
             return .defaultValue
         }
+    }
+}
+
+/// Callbacks that let a screenshot editor host chat bubbles with live text selection.
+public final class ChatScreenshotMessageItemHooks {
+    /// The node the selection menu is positioned against.
+    public let rootNode: () -> ASDisplayNode?
+    /// Presents the selection menu.
+    public let present: (ViewController, Any?) -> Void
+    /// The user chose "Cut from screenshot" for `range` (UTF-16 offsets of the message text).
+    public let cutText: (EngineMessage.Id, Range<Int>) -> Void
+    /// The user swiped the bubble to the left: hide the message from the screenshot, or show it again.
+    public let toggleHidden: (EngineMessage.Id) -> Void
+
+    public init(rootNode: @escaping () -> ASDisplayNode?, present: @escaping (ViewController, Any?) -> Void, cutText: @escaping (EngineMessage.Id, Range<Int>) -> Void, toggleHidden: @escaping (EngineMessage.Id) -> Void) {
+        self.rootNode = rootNode
+        self.present = present
+        self.cutText = cutText
+        self.toggleHidden = toggleHidden
     }
 }

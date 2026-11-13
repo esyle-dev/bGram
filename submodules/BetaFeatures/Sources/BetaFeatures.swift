@@ -65,8 +65,8 @@ public enum BetaFeature: String, CaseIterable {
                 : "A transcript sheet for voice messages: synced highlighting, tap-to-seek and an AI summary."
         case .timeCapsule:
             return isRussian
-                ? "Запечатайте сообщение до выбранного времени — до тех пор его не видно в чате."
-                : "Seal a message until a chosen time: it stays hidden in the chat until the capsule opens."
+                ? "Запечатайте сообщение до выбранного срока: до этого момента его не видит никто. Долгое нажатие на «Отправить»."
+                : "Seal a message until a chosen moment: nobody sees it before it opens. Long-press Send to seal."
         case .unmuteSimilar:
             return isRussian
                 ? "Уведомления о важных постах в беззвучных каналах — по ключевым словам или типу поста."

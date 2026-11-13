@@ -39,6 +39,7 @@ import ChatMessageBubbleItemNode
 import AdsInfoScreen
 import AdsReportScreen
 import WalletContext
+import BetaFeatures
  
 private struct MessageContextMenuData {
     let starStatus: Bool?
@@ -1946,7 +1947,7 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
         }
 
         // Локальные концепты: «Исключить из мьюта…» в замьюченном канале — открывает редактор исключений.
-        if conceptsOfflineDemoEnabled, chatPresentationInterfaceState.peerIsMuted, let channel = message.peers[message.id.peerId] as? TelegramChannel, case .broadcast = channel.info, messages.count == 1 {
+        if BetaFeatures.isEnabled(.unmuteSimilar), chatPresentationInterfaceState.peerIsMuted, let channel = message.peers[message.id.peerId] as? TelegramChannel, case .broadcast = channel.info, messages.count == 1 {
             let isRussian = chatPresentationInterfaceState.strings.baseLanguageCode == "ru"
             actions.append(.action(ContextMenuActionItem(text: isRussian ? "Звук для похожих" : "Unmute Similar", icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "News/Channel/MenuNotify"), color: theme.actionSheet.primaryTextColor)

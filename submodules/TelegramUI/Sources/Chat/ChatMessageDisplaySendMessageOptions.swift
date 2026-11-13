@@ -12,6 +12,7 @@ import TopMessageReactions
 import ReactionSelectionNode
 import ChatControllerInteraction
 import ChatSendAudioMessageContextPreview
+import BetaFeatures
 
 extension ChatSendMessageEffect {
     convenience init(_ effect: ChatSendMessageActionSheetController.SendParameters.Effect) {
@@ -33,6 +34,11 @@ private func makeRichTextSendPreview(context: AccountContext, content: ChatInput
 }
 
 func chatMessageDisplaySendMessageOptions(selfController: ChatControllerImpl, node: ASDisplayNode, gesture: ContextGesture) {
+    // βeta Features: Time Capsule replaces the send options with the capsule presets (not while editing).
+    if BetaFeatures.isEnabled(.timeCapsule), selfController.presentationInterfaceState.interfaceState.editMessage == nil, case .peer = selfController.chatLocation {
+        chatMessageDisplayTimeCapsuleOptions(selfController: selfController, node: node)
+        return
+    }
     guard let peerId = selfController.chatLocation.peerId, let textInputView = selfController.chatDisplayNode.textInputView(), let layout = selfController.validLayout else {
         return
     }

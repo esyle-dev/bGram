@@ -29,6 +29,7 @@ import GlassBackgroundComponent
 import ComponentFlow
 import ComponentDisplayAdapters
 import VisualQuote
+import BetaFeatures
 
 /// Upper bound on the pixel dimensions a full-screen photo is decoded and rasterized at.
 /// Photos larger than this are downscaled to fit; smaller ones are left untouched.
@@ -1220,7 +1221,7 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
     // MARK: - Visual Quote
     
     private var isVisualQuoteEnabled: Bool {
-        return self.context.sharedContext.immediateExperimentalUISettings.visualQuote
+        return BetaFeatures.isEnabled(.visualQuote) && self.context.sharedContext.immediateExperimentalUISettings.visualQuote
     }
     
     /// Regular photos only: no secret, paid or copy-protected media, no ads, no tiled local files.

@@ -15,6 +15,7 @@ import TopMessageReactions
 import GlassBackgroundComponent
 import ComponentFlow
 import ComponentDisplayAdapters
+import BetaFeatures
 
 private final class ChatMessageSelectionInputPanelNodeViewForOverlayContent: UIView, ChatInputPanelViewForOverlayContent {
     var reactionContextNode: ReactionContextNode?
@@ -613,7 +614,7 @@ public final class ChatMessageSelectionInputPanelNode: ChatInputPanelNode {
             }
         }
         
-        let canReplyToSelected = !self.peerMedia && self.actions != nil && (2 ... MultiReplyStore.maxMessageCount).contains(self.actionsSelectionCount)
+        let canReplyToSelected = BetaFeatures.isEnabled(.multiReply) && !self.peerMedia && self.actions != nil && (2 ... MultiReplyStore.maxMessageCount).contains(self.actionsSelectionCount)
         self.replyButton.isHidden = !canReplyToSelected
         if canReplyToSelected {
             // Kept apart from Forward, whose arrow it would otherwise be easy to mistake for it

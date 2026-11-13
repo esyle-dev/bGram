@@ -3,6 +3,7 @@ import Postbox
 import SwiftSignalKit
 import TelegramApi
 import MtProtoKit
+import BetaFeatures
 
 private enum AccountStateManagerOperationContent {
     case pollDifference(Int32, AccountFinalStateEvents)
@@ -2538,7 +2539,7 @@ public func messagesForNotification(transaction: Transaction, id: MessageId, alw
     if !resolvedNotify {
         notify = false
         // Локальные концепты: исключение для канала без звука возвращает уведомление.
-        if conceptsOfflineDemoEnabled && conceptsMuteExceptionMatches(transaction: transaction, message: message) {
+        if BetaFeatures.isEnabled(.unmuteSimilar) && conceptsMuteExceptionMatches(transaction: transaction, message: message) {
             notify = true
             conceptsMuteExceptionMarkUnseen(transaction: transaction, message: message)
         }

@@ -14,6 +14,7 @@ import ChatMessageSwipeToReplyNode
 import ChatMessageBubbleItemNode
 import TelegramUIPreferences
 import TelegramPresentationData
+import BetaFeatures
 
 // Multi-action swipe concept: swipe left on a bubble, pass the reply threshold, keep the finger down and slide
 // up or down to pick an action (Forward / Copy / Save / Add to Favorites / Save to Files).
@@ -25,7 +26,7 @@ enum ConceptsSwipeActions {
     private static var context: AccountContext?
     /// Turns the multi-action swipe on. Call once from a chat controller; without the launch argument nothing changes.
     static func enableIfNeeded(context: AccountContext) {
-        guard CommandLine.arguments.contains("--concepts-swipe-actions"), self.context == nil else {
+        guard BetaFeatures.isEnabled(.multiActionSwipe), self.context == nil else {
             return
         }
         self.context = context

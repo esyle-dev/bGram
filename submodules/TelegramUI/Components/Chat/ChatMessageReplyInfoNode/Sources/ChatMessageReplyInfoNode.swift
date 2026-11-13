@@ -19,6 +19,7 @@ import ChatMessageItemCommon
 import MessageInlineBlockBackgroundView
 import CheckNode
 import EmojiTextAttachmentView
+import BetaFeatures
 
 public enum ChatMessageReplyInfoType {
     case bubble(incoming: Bool)
@@ -207,7 +208,7 @@ public class ChatMessageReplyInfoNode: ASDisplayNode {
         
         return { originalArguments in
             var arguments = originalArguments
-            var deck = MultiReplyStore.shared.deck(parentStableId: originalArguments.parentMessage.stableId)
+            var deck = BetaFeatures.isEnabled(.multiReply) ? MultiReplyStore.shared.deck(parentStableId: originalArguments.parentMessage.stableId) : nil
             // A reply being sent is drawn as a deck from its first layout, so its size does not jump
             if deck == nil, originalArguments.parentMessage.id.namespace == Namespaces.Message.Local, let firstMessageId = originalArguments.message?.id, let deckMessageIds = MultiReplyStore.shared.inFlightDeck(firstMessageId: firstMessageId) {
                 deck = MultiReplyStore.Deck(messageIds: deckMessageIds, activeIndex: 0, isExpanded: false)

@@ -2388,6 +2388,16 @@ public final class SharedAccountContextImpl: SharedAccountContext {
     }
     
     public func makeChatMessagePreviewItem(context: AccountContext, messages: [Message], theme: PresentationTheme, strings: PresentationStrings, wallpaper: TelegramWallpaper, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, dateTimeFormat: PresentationDateTimeFormat, nameOrder: PresentationPersonNameOrder, forcedResourceStatus: FileMediaResourceStatus?, tapMessage: ((Message) -> Void)?, clickThroughMessage: ((UIView?, CGPoint?) -> Void)? = nil, backgroundNode: ASDisplayNode?, availableReactions: AvailableReactions?, accountPeer: Peer?, isCentered: Bool, isPreview: Bool, isStandalone: Bool, rank: String?, rankRole: ChatRankInfoScreenRole?, isGiftMessageComposerPreview: Bool) -> ListViewItem {
+        return self.makeScreenshotChatMessageItem(context: context, messages: messages, theme: theme, strings: strings, wallpaper: wallpaper, fontSize: fontSize, chatBubbleCorners: chatBubbleCorners, dateTimeFormat: dateTimeFormat, nameOrder: nameOrder, forcedResourceStatus: forcedResourceStatus, tapMessage: tapMessage, clickThroughMessage: clickThroughMessage, backgroundNode: backgroundNode, availableReactions: availableReactions, accountPeer: accountPeer, isCentered: isCentered, isPreview: isPreview, isStandalone: isStandalone, rank: rank, rankRole: rankRole, isGiftMessageComposerPreview: isGiftMessageComposerPreview, screenshotHooks: nil)
+    }
+
+    /// The same bubble, with the screenshot editor's text selection and swipe hooks (the chat's own bubbles).
+    public func makeChatScreenshotMessageItem(context: AccountContext, messages: [EngineMessage], theme: PresentationTheme, strings: PresentationStrings, wallpaper: TelegramWallpaper, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, dateTimeFormat: PresentationDateTimeFormat, nameOrder: PresentationPersonNameOrder, backgroundNode: ASDisplayNode?, availableReactions: AvailableReactions?, accountPeer: EnginePeer?, hooks: ChatScreenshotMessageItemHooks) -> ListViewItem {
+        return self.makeScreenshotChatMessageItem(context: context, messages: messages.map { $0._asMessage() }, theme: theme, strings: strings, wallpaper: wallpaper, fontSize: fontSize, chatBubbleCorners: chatBubbleCorners, dateTimeFormat: dateTimeFormat, nameOrder: nameOrder, forcedResourceStatus: nil, tapMessage: nil, clickThroughMessage: nil, backgroundNode: backgroundNode, availableReactions: availableReactions, accountPeer: accountPeer?._asPeer(), isCentered: false, isPreview: false, isStandalone: false, rank: nil, rankRole: nil, isGiftMessageComposerPreview: false, screenshotHooks: hooks)
+    }
+
+    private func makeScreenshotChatMessageItem(context: AccountContext, messages: [Message], theme: PresentationTheme, strings: PresentationStrings, wallpaper: TelegramWallpaper, fontSize: PresentationFontSize, chatBubbleCorners: PresentationChatBubbleCorners, dateTimeFormat: PresentationDateTimeFormat, nameOrder: PresentationPersonNameOrder, forcedResourceStatus: FileMediaResourceStatus?, tapMessage: ((Message) -> Void)?, clickThroughMessage: ((UIView?, CGPoint?) -> Void)? = nil, backgroundNode: ASDisplayNode?, availableReactions: AvailableReactions?, accountPeer: Peer?, isCentered: Bool, isPreview: Bool, isStandalone: Bool, rank: String?, rankRole: ChatRankInfoScreenRole?, isGiftMessageComposerPreview: Bool, screenshotHooks: ChatScreenshotMessageItemHooks? = nil) -> ListViewItem {
+
         let controllerInteraction: ChatControllerInteraction
 
         controllerInteraction = ChatControllerInteraction(
@@ -2511,7 +2521,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             },
             performTextSelectionAction: { message, _, _, _, action in
                 if let screenshotHooks, let message, case let .cutFromScreenshot(range) = action {
-                    screenshotHooks.cutText(message.id, range)
+                    screenshotHooks.cutText(EngineMessage(message).id, range)
                 }
             },
             displayImportedMessageTooltip: { _ in

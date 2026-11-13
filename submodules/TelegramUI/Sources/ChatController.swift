@@ -1,3 +1,4 @@
+import BetaFeatures
 import Foundation
 import UIKit
 import Postbox
@@ -8597,6 +8598,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         guard case let .peer(peerId) = self.chatLocation else {
             return
         }
+        // βeta Features: the black hole needs the snapshots before the selection is reset and the history hidden.
+        let runBlackHoleClearAnimation = BetaFeatures.isEnabled(.blackHoleDelete) ? self.prepareBlackHoleClearAnimation() : nil
         self.updateChatPresentationInterfaceState(animated: true, interactive: true, { $0.updatedInterfaceState { $0.withoutSelectionState() } })
         self.chatDisplayNode.historyNode.historyAppearsCleared = true
         
@@ -8613,21 +8616,32 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             statusText = self.presentationData.strings.Undo_ChatCleared
         }
         
-        self.present(UndoOverlayController(presentationData: self.context.sharedContext.currentPresentationData.with { $0 }, content: .removedChat(context: self.context, title: NSAttributedString(string: statusText), text: nil), elevatedLayout: false, action: { [weak self] value in
-            guard let strongSelf = self else {
+        let presentUndo: () -> Void = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.present(UndoOverlayController(presentationData: self.context.sharedContext.currentPresentationData.with { $0 }, content: .removedChat(context: self.context, title: NSAttributedString(string: statusText), text: nil), elevatedLayout: false, action: { [weak self] value in
+                guard let strongSelf = self else {
+                    return false
+                }
+                if value == .commit {
+                    let _ = strongSelf.context.engine.messages.clearHistoryInteractively(peerId: peerId, threadId: nil, type: type).startStandalone(completed: {
+                        self?.chatDisplayNode.historyNode.historyAppearsCleared = false
+                    })
+                    return true
+                } else if value == .undo {
+                    strongSelf.chatDisplayNode.historyNode.historyAppearsCleared = false
+                    return true
+                }
                 return false
-            }
-            if value == .commit {
-                let _ = strongSelf.context.engine.messages.clearHistoryInteractively(peerId: peerId, threadId: nil, type: type).startStandalone(completed: {
-                    self?.chatDisplayNode.historyNode.historyAppearsCleared = false
-                })
-                return true
-            } else if value == .undo {
-                strongSelf.chatDisplayNode.historyNode.historyAppearsCleared = false
-                return true
-            }
-            return false
-        }), in: .current)
+            }), in: .current)
+        }
+
+        if let runBlackHoleClearAnimation {
+            runBlackHoleClearAnimation(presentUndo)
+        } else {
+            presentUndo()
+        }
     }
     
     public func cancelSelectingMessages() {
