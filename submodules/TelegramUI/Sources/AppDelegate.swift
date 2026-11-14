@@ -687,9 +687,18 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             networkEngineFactory: RustNetworkEngineFactory()
         )
         
-        guard let appGroupUrl = maybeAppGroupUrl else {
-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
-            return true
+        // bGram: a personal signing certificate usually comes without the App Groups entitlement,
+        // and stock Telegram then returns early — which looks like a black screen, because the error
+        // alert has no window to attach to yet. Run from a private folder inside Documents instead.
+        let appGroupUrl: URL
+        if let maybeAppGroupUrl {
+            appGroupUrl = maybeAppGroupUrl
+        } else {
+            let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]
+            let fallbackUrl = URL(fileURLWithPath: documentsPath).appendingPathComponent("bgram-standalone")
+            try? FileManager.default.createDirectory(at: fallbackUrl, withIntermediateDirectories: true)
+            appGroupUrl = fallbackUrl
+            BGramStartupTrace.stage("no app group -> standalone")
         }
         
         var isDebugConfiguration = false
