@@ -350,6 +350,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         precondition(!testIsLaunched)
         testIsLaunched = true
+        BGramStartupTrace.install()
         
         let _ = voipTokenPromise.get().start(next: { token in
             self.voipDeviceToken.set(.single(token))
@@ -736,6 +737,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         } else {
             rootPath = rootPathForBasePath(appGroupUrl.path)
         }
+        BGramStartupTrace.stage("data path ready")
         if !isUITest {
             performAppGroupUpgrades(appGroupPath: appGroupUrl.path, rootPath: rootPath)
         }
@@ -1379,6 +1381,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     let _ = ConceptsOfflineDemo.signIn(accountManager: sharedApplicationContext.sharedContext.accountManager, account: account).startStandalone()
                     return nil
                 }
+                BGramStartupTrace.stage(accountAndSettings == nil ? "no account -> login" : "auth context")
                 return accountAndSettings.flatMap { account, otherAccountPhoneNumbers in
                     return UnauthorizedApplicationContext(apiId: buildConfig.apiId, apiHash: buildConfig.apiHash, sharedContext: sharedApplicationContext.sharedContext, account: account, otherAccountPhoneNumbers: otherAccountPhoneNumbers)
                 }
@@ -1421,6 +1424,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
 
                     self.mainWindow.debugAction = nil
                     self.mainWindow.viewController = context.rootController
+                    BGramStartupTrace.finish()
                     if conceptsOfflineDemoEnabled, self.conceptsOfflineDemoPanel == nil, let window = self.window {
                         self.conceptsOfflineDemoPanel = ConceptsOfflineDemoPanel(context: context.context, window: window)
                     }

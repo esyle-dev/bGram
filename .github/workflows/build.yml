@@ -47,6 +47,15 @@ jobs:
           fi
           uname -m
 
+      - name: Restore the Bazel disk cache
+        uses: actions/cache@v4
+        with:
+          path: /Users/Shared/bazel-cache
+          key: bazel-cache-${{ hashFiles('MODULE.bazel.lock', 'versions.json') }}-${{ github.run_id }}
+          restore-keys: |
+            bazel-cache-${{ hashFiles('MODULE.bazel.lock', 'versions.json') }}-
+            bazel-cache-
+
       - name: Create canonical source directory
         run: |
           set -x
@@ -105,6 +114,7 @@ jobs:
           python3 -u build-system/Make/Make.py \
             $XCODE_OVERRIDE \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
+            --cacheDir=/Users/Shared/bazel-cache \
             build \
             --continueOnError \
             --configurationPath="build-system/appstore-configuration.json" \
