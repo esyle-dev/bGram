@@ -19,6 +19,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/BetaFeatures:BetaFeatures",
         "//submodules/Display",
         "//submodules/LottieSettings:LottieSettings",
         "//submodules/AsyncDisplayKit",

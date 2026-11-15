@@ -1178,7 +1178,8 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                 TelegramTextAttributes.Timecode,
                 TelegramTextAttributes.BankCard,
                 TelegramTextAttributes.TonAddress,
-                TelegramTextAttributes.Date
+                TelegramTextAttributes.Date,
+                TelegramTextAttributes.Note
             ]
             for name in possibleNames {
                 if let _ = attributes[NSAttributedString.Key(rawValue: name)] {
@@ -1190,6 +1191,15 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
             
             if let _ = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Spoiler)], !self.displayContentsUnderSpoilers.value {
                 return ChatMessageBubbleContentTapAction(content: .none)
+            } else if let noteUrl = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.Note)] as? String {
+                // A long press on a note's anchor opens the standard message menu, not the tooltip.
+                guard case .tap = gesture else {
+                    return ChatMessageBubbleContentTapAction(content: .none)
+                }
+                // The tooltip points at the anchor's rect on the tapped line.
+                let noteRects = rects ?? []
+                let tappedRect = noteRects.first(where: { $0.insetBy(dx: -2.0, dy: -2.0).contains(textLocalPoint) }) ?? noteRects.first
+                return ChatMessageBubbleContentTapAction(content: .tooltip(noteUrl, self.textNode.textNode, tappedRect), rects: rects)
             } else if let tonAddress = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.TonAddress)] as? TelegramTonAddress {
                 guard tonAddress.range.length == 48, tonAddress.address.utf8.count == 48,
                       WalletContext.transferAddress(from: tonAddress.address) != nil else {
@@ -1352,7 +1362,8 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                         TelegramTextAttributes.Timecode,
                         TelegramTextAttributes.BankCard,
                         TelegramTextAttributes.TonAddress,
-                        TelegramTextAttributes.Date
+                        TelegramTextAttributes.Date,
+                        TelegramTextAttributes.Note
                     ]
                     for name in possibleNames {
                         if let _ = attributes[NSAttributedString.Key(rawValue: name)] {

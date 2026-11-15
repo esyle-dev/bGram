@@ -4972,6 +4972,9 @@ extension ChatControllerImpl {
             }
         })
         
+        interfaceInteraction.openNoteEditing = { [weak self] in
+            self?.openMessageNoteEditing()
+        }
         self.interfaceInteraction = interfaceInteraction
         
         if let search = self.focusOnSearchAfterAppearance {

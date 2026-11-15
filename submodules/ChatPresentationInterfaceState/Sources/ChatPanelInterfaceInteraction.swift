@@ -151,6 +151,8 @@ public final class ChatPanelInterfaceInteraction {
     public let updateInputLanguage: (@escaping (String?) -> String?) -> Void
     public let unarchiveChat: () -> Void
     public let openLinkEditing: () -> Void
+    /// Opens the note editor for the input field's selection (Format › Note). Set by the chat controller.
+    public var openNoteEditing: () -> Void = {}
     public let openDateEditing: () -> Void
     public let displaySlowmodeTooltip: (UIView, CGRect) -> Void
     public let displaySendMessageOptions: (ASDisplayNode, ContextGesture) -> Void

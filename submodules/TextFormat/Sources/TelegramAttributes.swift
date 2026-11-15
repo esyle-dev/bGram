@@ -56,4 +56,6 @@ public struct TelegramTextAttributes {
     public static let Code = "TelegramCode"
     public static let Button = "TelegramButton"
     public static let Date = "TelegramDate"
+    /// The `tg://note?d=` URL of a message note (`MessageNoteContent`) over its anchor text.
+    public static let Note = "TelegramNote"
 }

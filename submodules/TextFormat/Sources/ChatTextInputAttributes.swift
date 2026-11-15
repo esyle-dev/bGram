@@ -243,6 +243,11 @@ public func textAttributedStringForStateText(context: AnyObject, stateText: NSAt
                 if accentTextColor.isEqual(textColor) {
                     result.addAttribute(NSAttributedString.Key.underlineStyle, value: NSUnderlineStyle.single.rawValue as NSNumber, range: range)
                 }
+                // A note's anchor is coloured like a link, with a dotted underline in the accent colour.
+                if let urlValue = value as? ChatTextInputTextUrlAttribute, MessageNoteContent.isNoteUrl(urlValue.url) {
+                    result.addAttribute(NSAttributedString.Key.underlineStyle, value: messageNoteUnderlineStyle as NSNumber, range: range)
+                    result.addAttribute(NSAttributedString.Key.underlineColor, value: accentTextColor, range: range)
+                }
             } else if key == ChatTextInputAttributes.bold {
                 result.addAttribute(key, value: value, range: range)
                 fontAttributes.insert(.bold)
@@ -870,6 +875,11 @@ public func refreshChatTextInputAttributes(context: AnyObject, textView: UITextV
                     if accentTextColor.isEqual(primaryTextColor) {
                         textView.textStorage.addAttribute(NSAttributedString.Key.underlineStyle, value: NSUnderlineStyle.single.rawValue as NSNumber, range: range)
                     }
+                    // A note's anchor is coloured like a link, with a dotted underline in the accent colour.
+                    if let urlValue = value as? ChatTextInputTextUrlAttribute, MessageNoteContent.isNoteUrl(urlValue.url) {
+                        textView.textStorage.addAttribute(NSAttributedString.Key.underlineStyle, value: messageNoteUnderlineStyle as NSNumber, range: range)
+                        textView.textStorage.addAttribute(NSAttributedString.Key.underlineColor, value: accentTextColor, range: range)
+                    }
                 } else if key == ChatTextInputAttributes.bold {
                     textView.textStorage.addAttribute(key, value: value, range: range)
                     fontAttributes.insert(.bold)
@@ -993,6 +1003,11 @@ public func refreshGenericTextInputAttributes(context: AnyObject, textView: UITe
                     
                     if theme.chat.inputPanel.panelControlAccentColor.isEqual(theme.chat.inputPanel.primaryTextColor) {
                         textView.textStorage.addAttribute(NSAttributedString.Key.underlineStyle, value: NSUnderlineStyle.single.rawValue as NSNumber, range: range)
+                    }
+                    // A note's anchor is coloured like a link, with a dotted underline in the accent colour.
+                    if let urlValue = value as? ChatTextInputTextUrlAttribute, MessageNoteContent.isNoteUrl(urlValue.url) {
+                        textView.textStorage.addAttribute(NSAttributedString.Key.underlineStyle, value: messageNoteUnderlineStyle as NSNumber, range: range)
+                        textView.textStorage.addAttribute(NSAttributedString.Key.underlineColor, value: theme.chat.inputPanel.panelControlAccentColor, range: range)
                     }
                 } else if key == ChatTextInputAttributes.bold {
                     textView.textStorage.addAttribute(key, value: value, range: range)

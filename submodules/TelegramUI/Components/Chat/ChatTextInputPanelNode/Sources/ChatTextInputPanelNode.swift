@@ -58,6 +58,7 @@ import ChatRecordingViewOnceButtonNode
 import ChatRecordingPreviewInputPanelNode
 import ChatInputContextPanelNode
 import RasterizedCompositionComponent
+import BetaFeatures
 import RichTextEditorUIKit
 import RichTextEditorCore
 
@@ -5118,6 +5119,12 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 }
             ])
             
+            if BetaFeatures.isEnabled(.annotations), let noteState = messageNoteMenuState(text: richTextInputNode.attributedText, selectedRange: richTextInputNode.selectedRange) {
+                children.append(UIAction(title: "Annotations", image: nil, attributes: noteState.isEnabled ? [] : .disabled) { [weak self] _ in
+                    self?.interfaceInteraction?.openNoteEditing()
+                })
+            }
+            
             if hasSpoilers {
                 children.append(UIAction(title: self.strings?.TextFormat_Date ?? "Date", image: nil) { [weak self] (action) in
                     if let strongSelf = self {
@@ -5194,6 +5201,14 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
                 self?.interfaceInteraction?.openLinkEditing()
             }
         ])
+        // A note travels as a hidden link, so it reaches exactly the text a link reaches.
+        let currentLink = richTextInputNode.currentRichTextLinkURL()
+        let isEditingNote = currentLink.flatMap({ MessageNoteContent.isNoteUrl($0) }) ?? false
+        let canAddNote = richTextInputNode.canPerformFormatAction(.bold) && (currentLink == nil || isEditingNote)
+        children.append(UIAction(title: "Annotations", image: nil,
+                                 attributes: canAddNote ? [] : .disabled) { [weak self] _ in
+            self?.interfaceInteraction?.openNoteEditing()
+        })
         if hasSpoilers {
             children.append(UIAction(title: self.strings?.TextFormat_Date ?? "Date", image: nil) { [weak richTextInputNode] _ in
                 richTextInputNode?.performFormatAction(.date)
@@ -5978,4 +5993,52 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
     public func makeAttachmentMenuTransition(accessoryPanelNode: ASDisplayNode?) -> AttachmentInputPanelTransition {
         return AttachmentInputPanelTransition(inputNode: self, accessoryPanelNode: accessoryPanelNode, menuButtonNode: self.menuButton, menuButtonBackgroundView: self.menuButtonBackgroundView, menuIconNode: self.menuButtonIconNode, menuTextNode: self.menuButtonTextNode, prepareForDismiss: { self.menuButtonIconNode.enqueueState(.app, animated: false) })
     }
+}
+
+/// Anchors an agent composer chip's menu: the menu grows upward out of the chip and keeps the chip's left edge.
+private final class AgentChipMenuReferenceSource: ContextReferenceContentSource {
+    private let sourceView: UIView
+
+    init(sourceView: UIView) {
+        self.sourceView = sourceView
+    }
+
+    func transitionInfo() -> ContextControllerReferenceViewInfo? {
+        return ContextControllerReferenceViewInfo(
+            referenceView: self.sourceView,
+            contentAreaInScreenSpace: mainWindowScreenBounds,
+            actionsPosition: .top,
+            morphedActionsAlignment: .leading
+        )
+    }
+}
+
+/// Whether Format › Note is offered for a selection of the legacy input field, and as "Note" or "Edit Note".
+/// Nil when the selection is empty after trimming whitespace.
+private func messageNoteMenuState(text: NSAttributedString?, selectedRange: NSRange) -> (isEnabled: Bool, isEditing: Bool)? {
+    guard let text, selectedRange.length > 0, selectedRange.location + selectedRange.length <= text.length else {
+        return nil
+    }
+    guard let range = messageNoteTrimmedRange(text: text.string, range: selectedRange) else {
+        return nil
+    }
+    var noteRanges: [NSRange] = []
+    var otherLinkRanges: [NSRange] = []
+    text.enumerateAttribute(ChatTextInputAttributes.textUrl, in: NSRange(location: 0, length: text.length), options: []) { value, attributeRange, _ in
+        guard let value = value as? ChatTextInputTextUrlAttribute else {
+            return
+        }
+        if MessageNoteContent.isNoteUrl(value.url) {
+            noteRanges.append(attributeRange)
+        } else {
+            otherLinkRanges.append(attributeRange)
+        }
+    }
+    if noteRanges.contains(where: { $0 == range }) {
+        return (true, true)
+    }
+    let overlapsNote = noteRanges.contains(where: { NSIntersectionRange($0, range).length > 0 })
+    let overlapsLink = otherLinkRanges.contains(where: { NSIntersectionRange($0, range).length > 0 })
+    let isEnabled = !overlapsNote && !overlapsLink && noteRanges.count < MessageNoteContent.maxNotesPerMessage
+    return (isEnabled, false)
 }

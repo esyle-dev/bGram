@@ -308,6 +308,7 @@ swift_library(
         "//submodules/TelegramUI/Components/EmojiStatusSelectionComponent:EmojiStatusSelectionComponent",
         "//submodules/TelegramUI/Components/EmojiStatusComponent:EmojiStatusComponent",
         "//submodules/TelegramUI/Components/ChatControllerInteraction:ChatControllerInteraction",
+        "//submodules/TelegramUI/Components/MessageNoteEditorScreen:MessageNoteEditorScreen",
         "//submodules/Components/ComponentDisplayAdapters:ComponentDisplayAdapters",
         "//submodules/Media/ConvertOpusToAAC:ConvertOpusToAAC",
         "//submodules/Media/LocalAudioTranscription:LocalAudioTranscription",

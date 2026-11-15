@@ -488,6 +488,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
     weak var sendingOptionsTooltipController: TooltipController?
     weak var searchResultsTooltipController: TooltipController?
     weak var messageTooltipController: TooltipController?
+    weak var messageNoteTooltipController: ViewController?
     weak var videoUnmuteTooltipController: TooltipController?
     var didDisplayVideoUnmuteTooltip = false
     var didDisplayGroupEmojiTip = false
@@ -4297,7 +4298,9 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
             }
         }, displayMessageTooltip: { [weak self] messageId, text, isFactCheck, node, nodeRect in
             if let strongSelf = self {
-                if let node = node {
+                if let node = node, MessageNoteContent.isNoteUrl(text) {
+                    strongSelf.displayMessageNote(messageId: messageId, noteUrl: text, sourceNode: node, sourceRect: nodeRect)
+                } else if let node = node {
                     strongSelf.messageTooltipController?.dismiss()
                     
                     let padding: CGFloat
@@ -10607,6 +10610,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         self.sendingOptionsTooltipController?.dismiss()
         self.searchResultsTooltipController?.dismiss()
         self.messageTooltipController?.dismiss()
+        self.messageNoteTooltipController?.dismiss()
         self.videoUnmuteTooltipController?.dismiss()
         self.silentPostTooltipController?.dismiss()
         self.mediaRecordingModeTooltipController?.dismiss()

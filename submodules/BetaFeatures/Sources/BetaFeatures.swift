@@ -11,6 +11,7 @@ public enum BetaFeature: String, CaseIterable {
     case voiceTranscript
     case timeCapsule
     case unmuteSimilar
+    case annotations
 
     public var key: String {
         return "bgram.beta." + self.rawValue
@@ -34,6 +35,8 @@ public enum BetaFeature: String, CaseIterable {
             return isRussian ? "Капсула времени" : "Time Capsule"
         case .unmuteSimilar:
             return isRussian ? "Умный звук" : "Unmute Similar"
+        case .annotations:
+            return isRussian ? "Аннотации" : "Annotations"
         }
     }
 
@@ -71,6 +74,10 @@ public enum BetaFeature: String, CaseIterable {
             return isRussian
                 ? "Уведомления о важных постах в беззвучных каналах — по ключевым словам или типу поста."
                 : "Notifications for important posts in muted channels, matched by keyword or by post type."
+        case .annotations:
+            return isRussian
+                ? "Выделите слово в сообщении и прикрепите к нему пояснение — текст, фото или ссылку. Читатель откроет его тапом по слову с точечным подчёркиванием."
+                : "Select a word in your message and attach a note — text, a photo or a link. The reader taps the dotted word to see it."
         }
     }
 }

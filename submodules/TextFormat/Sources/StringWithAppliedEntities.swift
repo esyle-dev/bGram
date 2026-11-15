@@ -220,6 +220,9 @@ public func stringWithAppliedCustomEmojiEntities(_ string: NSAttributedString, e
     return updatedString
 }
 
+/// The underline style of a message note's anchor: text renderers draw it as a dotted line.
+public let messageNoteUnderlineStyle: Int = NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue
+
 public func stringWithAppliedEntities(_ text: String, entities: [MessageTextEntity], strings: PresentationStrings? = nil, dateTimeFormat: PresentationDateTimeFormat? = nil, baseColor: UIColor, linkColor: UIColor, baseQuoteTintColor: UIColor? = nil, baseQuoteSecondaryTintColor: UIColor? = nil, baseQuoteTertiaryTintColor: UIColor? = nil, codeBlockTitleColor: UIColor? = nil, codeBlockAccentColor: UIColor? = nil, codeBlockBackgroundColor: UIColor? = nil, baseFont: UIFont, linkFont: UIFont, boldFont: UIFont, italicFont: UIFont, boldItalicFont: UIFont, fixedFont: UIFont, blockQuoteFont: UIFont, underlineLinks: Bool = true, external: Bool = false, message: EngineRawMessage?, entityFiles: [EngineMedia.Id: TelegramMediaFile] = [:], adjustQuoteFontSize: Bool = false, cachedMessageSyntaxHighlight: CachedMessageSyntaxHighlight? = nil, paragraphAlignment: NSTextAlignment? = nil) -> NSAttributedString {
     let baseQuoteTintColor = baseQuoteTintColor ?? baseColor
     
@@ -289,6 +292,14 @@ public func stringWithAppliedEntities(_ text: String, entities: [MessageTextEnti
                     string.addAttribute(NSAttributedString.Key.underlineStyle, value: NSUnderlineStyle.single.rawValue as NSNumber, range: range)
                 }
                 string.addAttribute(NSAttributedString.Key(rawValue: TelegramTextAttributes.URL), value: "tel:\(nsString!.substring(with: range))", range: range)
+            case let .TextUrl(url) where MessageNoteContent.isNoteUrl(url):
+                // A note's anchor is coloured like a link, with a dotted underline in the link colour.
+                string.addAttribute(NSAttributedString.Key.foregroundColor, value: linkColor, range: range)
+                string.addAttribute(NSAttributedString.Key.underlineStyle, value: messageNoteUnderlineStyle as NSNumber, range: range)
+                string.addAttribute(NSAttributedString.Key.underlineColor, value: linkColor, range: range)
+                if !external {
+                    string.addAttribute(NSAttributedString.Key(rawValue: TelegramTextAttributes.Note), value: url, range: range)
+                }
             case let .TextUrl(url):
                 string.addAttribute(NSAttributedString.Key.foregroundColor, value: linkColor, range: range)
                 if nsString == nil {

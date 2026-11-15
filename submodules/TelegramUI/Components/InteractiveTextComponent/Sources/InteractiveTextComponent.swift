@@ -59,6 +59,8 @@ private final class InteractiveTextNodeStrikethrough {
     enum Style {
         case single
         case wavy
+        /// A message note's anchor (`single | patternDot`).
+        case dotted
     }
 
     let range: NSRange
@@ -1969,7 +1971,7 @@ open class InteractiveTextNode: ASDisplayNode, TextNodeProtocol, UIGestureRecogn
                             let lowerX = floor(CTLineGetOffsetForStringIndex(line.line, range.location, nil))
                             let upperX = ceil(CTLineGetOffsetForStringIndex(line.line, range.location + range.length, nil))
                             let x = lowerX < upperX ? lowerX : upperX
-                            line.underlines.append(InteractiveTextNodeStrikethrough(range: range, frame: CGRect(x: x, y: 0.0, width: abs(upperX - lowerX), height: line.frame.height), color: attributes[NSAttributedString.Key.underlineColor] as? UIColor, style: underlineStyle == NSUnderlineStyle.patternDot.rawValue ? .wavy : .single, isSpoiler: isSpoiler))
+                            line.underlines.append(InteractiveTextNodeStrikethrough(range: range, frame: CGRect(x: x, y: 0.0, width: abs(upperX - lowerX), height: line.frame.height), color: attributes[NSAttributedString.Key.underlineColor] as? UIColor, style: underlineStyle == NSUnderlineStyle.patternDot.rawValue ? .wavy : (underlineStyle == (NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue) ? .dotted : .single), isSpoiler: isSpoiler))
                         }
                         
                         if let embeddedItem = (attributes[NSAttributedString.Key(rawValue: "TelegramEmbeddedItem")] as? AnyHashable ?? attributes[NSAttributedString.Key(rawValue: "Attribute__EmbeddedItem")] as? AnyHashable) {
@@ -2679,6 +2681,22 @@ final class TextContentItemLayer: SimpleLayer {
                                     }
                                     let frame = strikethrough.frame.offsetBy(dx: lineFrame.minX, dy: lineFrame.minY)
                                     context.fill(CGRect(x: frame.minX, y: frame.maxY - 2.0, width: frame.width, height: 1.0))
+                                case .dotted:
+                                    if let color = strikethrough.color {
+                                        context.setFillColor(color.cgColor)
+                                    } else if let textColor {
+                                        context.setFillColor(textColor.cgColor)
+                                    }
+                                    let frame = strikethrough.frame.offsetBy(dx: lineFrame.minX, dy: lineFrame.minY)
+                                    let dotSize: CGFloat = 1.5
+                                    let spacing: CGFloat = 2.0
+                                    let count = max(1, Int(floor((frame.width + spacing) / (dotSize + spacing))))
+                                    let usedWidth = CGFloat(count) * dotSize + CGFloat(count - 1) * spacing
+                                    var x = frame.minX + floor((frame.width - usedWidth) * 0.5)
+                                    for _ in 0 ..< count {
+                                        context.fillEllipse(in: CGRect(x: x, y: frame.maxY - 2.0, width: dotSize, height: dotSize))
+                                        x += dotSize + spacing
+                                    }
                                 case .wavy:
                                     if let color = strikethrough.color {
                                         context.setStrokeColor(color.cgColor)
