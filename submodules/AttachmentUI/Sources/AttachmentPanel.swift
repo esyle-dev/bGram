@@ -844,7 +844,9 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
             self.cornerRadius = 12.0
         }
 
-        self.isUserInteractionEnabled = state.isVisible
+        // A button that cannot be pressed (the picture of an album is not chosen yet) is dimmed and does not react.
+        self.isUserInteractionEnabled = state.isVisible && state.isEnabled
+        transition.updateAlpha(node: self, alpha: state.isEnabled ? 1.0 : 0.4)
 
         self.setupShimmering()
 
@@ -1040,6 +1042,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
     // While a message is being edited the result replaces that message's media, so the long-press
     // send options (schedule, silent, effects) do not apply and the sheet is never offered.
     private let isEditingMessage: Bool
+    private let isAlbumEditing: Bool
     private var presentationData: PresentationData
     private var updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)?
     private var presentationDataDisposable: Disposable?
@@ -1147,7 +1150,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
     var onMainButtonPressed: () -> Void = { }
     var onSecondaryButtonPressed: () -> Void = { }
 
-    init(controller: AttachmentController, style: Style, context: AccountContext, chatLocation: ChatLocation?, isScheduledMessages: Bool, isEditingMessage: Bool = false, customEmojiAvailable: Bool, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)?) {
+    init(controller: AttachmentController, style: Style, context: AccountContext, chatLocation: ChatLocation?, isScheduledMessages: Bool, isEditingMessage: Bool = false, isAlbumEditing: Bool = false, customEmojiAvailable: Bool, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)?) {
         self.controller = controller
         self.context = context
         self.panelStyle = style
@@ -1155,6 +1158,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
         self.presentationData = updatedPresentationData?.initial ?? context.sharedContext.currentPresentationData.with { $0 }
         self.isScheduledMessages = isScheduledMessages
         self.isEditingMessage = isEditingMessage
+        self.isAlbumEditing = isAlbumEditing
         self.customEmojiAvailable = customEmojiAvailable
 
         self.presentationInterfaceState = ChatPresentationInterfaceState(chatWallpaper: .builtin(WallpaperSettings()), theme: self.presentationData.theme, preferredGlassType: .default, strings: self.presentationData.strings, dateTimeFormat: self.presentationData.dateTimeFormat, nameDisplayOrder: self.presentationData.nameDisplayOrder, limitsConfiguration: self.context.currentLimitsConfiguration.with { $0 }, fontSize: self.presentationData.chatFontSize, bubbleCorners: self.presentationData.chatBubbleCorners, accountPeerId: self.context.account.peerId, mode: .standard(.default), chatLocation: chatLocation ?? .peer(id: context.account.peerId), subject: nil, greetingData: nil, pendingUnpinnedAllMessages: false, activeGroupCallInfo: nil, hasActiveGroupCall: false, threadData: nil, isGeneralThreadClosed: nil, replyMessage: nil, accountPeerColor: nil, businessIntro: nil).updatedCustomEmojiAvailable(customEmojiAvailable)
@@ -2324,7 +2328,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
     private func loadTextNodeIfNeeded() {
         if let _ = self.textInputPanelNode {
         } else {
-            let textInputPanelNode = AttachmentTextInputPanelNode(context: self.context, presentationInterfaceState: self.presentationInterfaceState, glass: self.panelStyle == .glass, isAttachment: true, isScheduledMessages: self.isScheduledMessages, customEmojiAvailable: self.customEmojiAvailable, presentController: { [weak self] c in
+            let textInputPanelNode = AttachmentTextInputPanelNode(context: self.context, presentationInterfaceState: self.presentationInterfaceState, glass: self.panelStyle == .glass, isAttachment: true, isAlbumEditing: self.isAlbumEditing, isScheduledMessages: self.isScheduledMessages, customEmojiAvailable: self.customEmojiAvailable, presentController: { [weak self] c in
                 if let strongSelf = self {
                     strongSelf.present(c)
                 }
@@ -2338,6 +2342,12 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
                 textInputPanelNode.isAIEnabled = true
             }
             textInputPanelNode.interfaceInteraction = self.interfaceInteraction
+            textInputPanelNode.albumAttachPressed = { [weak self] sourceView in
+                self?.controller?.albumAttachPressed?(sourceView)
+            }
+            textInputPanelNode.captionIsAboveUpdated = { [weak self] value in
+                self?.controller?.mediaPickerContext?.setCaptionIsAboveMedia(value)
+            }
             textInputPanelNode.sendMessage = { [weak self] mode, messageEffect in
                 if let strongSelf = self {
                     strongSelf.sendMessagePressed(mode, messageEffect)
@@ -2620,6 +2630,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
             if textInputPanelNode.frame.width.isZero {
                 panelTransition = .immediate
             }
+            textInputPanelNode.isAlbumAttachVisible = self.controller?.isAlbumAttachVisible == true
             let panelHeight = textInputPanelNode.updateLayout(width: layout.size.width, leftInset: insets.left + layout.safeInsets.left + textInputSideInset, rightInset: insets.right + layout.safeInsets.right + textInputSideInset, bottomInset: layout.safeInsets.bottom, keyboardHeight: layout.inputHeight ?? 0.0, additionalSideInsets: UIEdgeInsets(), textFieldMaxHeight: layout.size.height / 2.0, availableHeight: layout.size.height, isSecondary: false, transition: panelTransition, interfaceState: self.presentationInterfaceState, metrics: layout.metrics, isMediaInputExpanded: false)
             let panelFrame = CGRect(x: 0.0, y: topAccessoryHeight, width: layout.size.width, height: panelHeight)
             if textInputPanelNode.frame.width.isZero {
@@ -2703,7 +2714,12 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate, ASGestureRecog
             } else {
                 cornerRadius = glassPanelHeight * 0.5
             }
-            let backgroundOriginX: CGFloat = isSelecting ? panelSideInset : tabBarFrame.minX
+            var backgroundOriginX: CGFloat = isSelecting ? panelSideInset : tabBarFrame.minX
+            if isSelecting && self.isAlbumEditing && self.controller?.isAlbumAttachVisible == true {
+                // The attachment button of the window that edits an album stands apart from the field, at its left, when it is there.
+                backgroundOriginX += 46.0
+                panelSize.width -= 46.0
+            }
 
             backgroundView.update(size: panelSize, cornerRadius: cornerRadius, isDark: self.presentationData.theme.overallDarkAppearance, tintColor: .init(kind: .panel), isInteractive: true, transition: ComponentTransition(transition))
 

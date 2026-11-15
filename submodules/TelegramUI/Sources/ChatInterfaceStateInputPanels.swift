@@ -68,6 +68,22 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
         }
     }
     
+    // The edit of an album that is folded away from its window waits in the place of the input panel. A reply, a forward or the edit of a
+    // message take the place while they last, and the panel of the album comes back when they are gone.
+    let interfaceState = chatPresentationInterfaceState.interfaceState
+    if let session = chatControllerInteraction?.albumEditSession as? AlbumEditSession, session.isBarVisible, interfaceState.replyMessageSubject == nil, interfaceState.forwardMessageIds == nil, interfaceState.editMessage == nil {
+        if let currentPanel = currentPanel as? AlbumEditInputPanelNode {
+            currentPanel.updateSession(session)
+            return (currentPanel, nil)
+        } else {
+            let panel = AlbumEditInputPanelNode(session: session)
+            panel.context = context
+            panel.chatControllerInteraction = chatControllerInteraction
+            panel.interfaceInteraction = interfaceInteraction
+            return (panel, nil)
+        }
+    }
+    
     if let _ = chatPresentationInterfaceState.search {
         var selectionPanel: ChatMessageSelectionInputPanelNode?
         if let selectionState = chatPresentationInterfaceState.interfaceState.selectionState {

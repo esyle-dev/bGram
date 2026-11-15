@@ -117,6 +117,8 @@ func presentLegacyMediaPickerGallery(
     chatLocation: ChatLocation?,
     isScheduledMessages: Bool,
     isActionButtonDone: Bool = false,
+    isAlbumAdding: Bool = false,
+    hidesSelectionCounter: Bool = false,
     presentationData: PresentationData,
     source: LegacyMediaPickerGallerySource,
     immediateThumbnail: UIImage?,
@@ -224,6 +226,7 @@ func presentLegacyMediaPickerGallery(
         hasCoverButton: hasCoverButton
     )!
     model.stickersContext = paintStickersContext
+    model.interfaceView.hidesSelectionCounter = hidesSelectionCounter
     controller.model = model
     model.controller = controller
     model.willFinishEditingItem = { item, adjustments, representation, hasChanges in
@@ -311,7 +314,8 @@ func presentLegacyMediaPickerGallery(
             })
         }
     }
-    if !isScheduledMessages && peer != nil {
+    // Pictures added to an album are not sent, so the long press of the button has no menu (silent, scheduled, timer).
+    if !isScheduledMessages && peer != nil && !isAlbumAdding {
         model.interfaceView.doneLongPressed = { [weak selectionContext, weak editingContext, weak legacyController, weak model, weak paintStickersContext] item, sourceView in
             if let legacyController = legacyController, let item = item as? TGMediaPickerGalleryItem, let model = model, let selectionContext = selectionContext {
                 var effectiveHasSchedule = hasSchedule

@@ -51,9 +51,10 @@ public class ItemListMultilineInputItem: ListViewItem, ItemListItem {
     let minimalHeight: CGFloat?
     let inlineAction: ItemListMultilineInputInlineAction?
     let noInsets: Bool
+    let isLoading: Bool
     public let tag: ItemListItemTag?
     
-    public init(presentationData: ItemListPresentationData, systemStyle: ItemListSystemStyle = .legacy, text: String, placeholder: String, maxLength: ItemListMultilineInputItemTextLimit?, sectionId: ItemListSectionId, style: ItemListStyle, capitalization: Bool = true, autocorrection: Bool = true, returnKeyType: UIReturnKeyType = .default, minimalHeight: CGFloat? = nil, textUpdated: @escaping (String) -> Void, shouldUpdateText: @escaping (String) -> Bool = { _ in return true }, processPaste: ((String) -> Void)? = nil, updatedFocus: ((Bool) -> Void)? = nil, tag: ItemListItemTag? = nil, action: (() -> Void)? = nil, inlineAction: ItemListMultilineInputInlineAction? = nil, noInsets: Bool = false) {
+    public init(presentationData: ItemListPresentationData, systemStyle: ItemListSystemStyle = .legacy, text: String, placeholder: String, maxLength: ItemListMultilineInputItemTextLimit?, sectionId: ItemListSectionId, style: ItemListStyle, capitalization: Bool = true, autocorrection: Bool = true, returnKeyType: UIReturnKeyType = .default, minimalHeight: CGFloat? = nil, textUpdated: @escaping (String) -> Void, shouldUpdateText: @escaping (String) -> Bool = { _ in return true }, processPaste: ((String) -> Void)? = nil, updatedFocus: ((Bool) -> Void)? = nil, tag: ItemListItemTag? = nil, action: (() -> Void)? = nil, inlineAction: ItemListMultilineInputInlineAction? = nil, noInsets: Bool = false, isLoading: Bool = false) {
         self.presentationData = presentationData
         self.systemStyle = systemStyle
         self.text = text
@@ -72,6 +73,7 @@ public class ItemListMultilineInputItem: ListViewItem, ItemListItem {
         self.tag = tag
         self.action = action
         self.inlineAction = inlineAction
+        self.isLoading = isLoading
         self.noInsets = noInsets
     }
     
@@ -121,6 +123,7 @@ public class ItemListMultilineInputItemNode: ListViewItemNode, ASEditableTextNod
     
     private let limitTextNode: TextNode
     private var inlineActionButtonNode: HighlightableButtonNode?
+    private var loadingNode: ASDisplayNode?
     
     private var item: ItemListMultilineInputItem?
     private var layoutParams: ListViewItemLayoutParams?
@@ -228,7 +231,7 @@ public class ItemListMultilineInputItemNode: ListViewItemNode, ASEditableTextNod
             }
             
             if let inlineAction = item.inlineAction {
-                rightInset += inlineAction.icon.size.width + 8.0
+                rightInset += inlineAction.icon.size.width + 12.0
             }
             
             var measureText = item.text
@@ -373,6 +376,34 @@ public class ItemListMultilineInputItemNode: ListViewItemNode, ASEditableTextNod
                         strongSelf.limitTextNode.removeFromSupernode()
                     }
                     
+                    if item.isLoading {
+                        let loadingNode: ASDisplayNode
+                        if let current = strongSelf.loadingNode {
+                            loadingNode = current
+                        } else {
+                            loadingNode = ASDisplayNode()
+                            loadingNode.isUserInteractionEnabled = false
+                            loadingNode.cornerRadius = 7.0
+                            strongSelf.addSubnode(loadingNode)
+                            strongSelf.loadingNode = loadingNode
+                            
+                            let animation = CABasicAnimation(keyPath: "opacity")
+                            animation.fromValue = 1.0 as NSNumber
+                            animation.toValue = 0.35 as NSNumber
+                            animation.duration = 0.7
+                            animation.autoreverses = true
+                            animation.repeatCount = .infinity
+                            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                            loadingNode.layer.add(animation, forKey: "skeletonPulse")
+                        }
+                        loadingNode.backgroundColor = item.presentationData.theme.list.itemSecondaryTextColor.withAlphaComponent(0.18)
+                        let loadingWidth = max(40.0, floor((params.width - leftInset - rightInset) * 0.55))
+                        loadingNode.frame = CGRect(origin: CGPoint(x: leftInset, y: floor((layout.contentSize.height - 14.0) / 2.0)), size: CGSize(width: loadingWidth, height: 14.0))
+                    } else if let loadingNode = strongSelf.loadingNode {
+                        loadingNode.removeFromSupernode()
+                        strongSelf.loadingNode = nil
+                    }
+                    
                     if let inlineAction = item.inlineAction {
                         let inlineActionButtonNode: HighlightableButtonNode
                         if let currentInlineActionButtonNode = strongSelf.inlineActionButtonNode {
@@ -384,7 +415,7 @@ public class ItemListMultilineInputItemNode: ListViewItemNode, ASEditableTextNod
                             strongSelf.addSubnode(inlineActionButtonNode)
                             strongSelf.inlineActionButtonNode = inlineActionButtonNode
                         }
-                        inlineActionButtonNode.frame = CGRect(origin: CGPoint(x: params.width - params.rightInset - inlineAction.icon.size.width - 11.0, y: 7.0), size: inlineAction.icon.size)
+                        inlineActionButtonNode.frame = CGRect(origin: CGPoint(x: params.width - params.rightInset - inlineAction.icon.size.width - 15.0, y: floor((layout.contentSize.height - inlineAction.icon.size.height) / 2.0)), size: inlineAction.icon.size)
                     } else if let inlineActionButtonNode = strongSelf.inlineActionButtonNode {
                         inlineActionButtonNode.removeFromSupernode()
                         strongSelf.inlineActionButtonNode = nil

@@ -446,6 +446,12 @@ public class AttachmentController: ViewController, MinimizableController {
     private let chatLocation: ChatLocation?
     private let isScheduledMessages: Bool
     private let isEditingMessage: Bool
+    /// The window shows the photos of an album that was sent, to be edited: its input panel has the attachment button and the caption
+    /// position button, and no send button.
+    fileprivate let isAlbumEditing: Bool
+    /// The window is the attachment window of the one that edits an album: what is chosen in it is added to the album, so the caption field
+    /// is not shown, and the picker has its own button for it.
+    fileprivate let isAlbumAdding: Bool
     private var buttons: [AttachmentButtonType]
     private let initialButton: AttachmentButtonType
     private let fromMenu: Bool
@@ -458,6 +464,19 @@ public class AttachmentController: ViewController, MinimizableController {
     public var willDismiss: () -> Void = {}
     public var didDismiss: () -> Void = {}
 
+    /// The attachment button of the input of the window that edits an album was pressed; the view is the button.
+    public var albumAttachPressed: ((UIView) -> Void)?
+    
+    /// Whether the attachment button is shown next to the field of the window that edits an album. It is shown only when the album has a
+    /// free place (a picture was taken away); it comes out from under the field and goes back under it.
+    public var isAlbumAttachVisible: Bool = false {
+        didSet {
+            if self.isAlbumAttachVisible != oldValue && self.isViewLoaded {
+                self.node.refreshPanelLayout()
+            }
+        }
+    }
+    
     public var mediaPickerContext: AttachmentMediaPickerContext? {
         get {
             return self.node.mediaPickerContext
@@ -595,7 +614,7 @@ public class AttachmentController: ViewController, MinimizableController {
 
         private var presentationData: PresentationData
         private var presentationDataDisposable: Disposable?
-
+        
         private var isMinimizing = false
 
         init(controller: AttachmentController) {
@@ -628,7 +647,7 @@ public class AttachmentController: ViewController, MinimizableController {
                 panelStyle = .legacy
             }
 
-            self.panel = AttachmentPanel(controller: controller, style: panelStyle, context: controller.context, chatLocation: controller.chatLocation, isScheduledMessages: controller.isScheduledMessages, isEditingMessage: controller.isEditingMessage, customEmojiAvailable: controller.customEmojiAvailable, updatedPresentationData: controller.updatedPresentationData)
+            self.panel = AttachmentPanel(controller: controller, style: panelStyle, context: controller.context, chatLocation: controller.chatLocation, isScheduledMessages: controller.isScheduledMessages, isEditingMessage: controller.isEditingMessage, isAlbumEditing: controller.isAlbumEditing, customEmojiAvailable: controller.customEmojiAvailable, updatedPresentationData: controller.updatedPresentationData)
             self.panel.fromMenu = controller.fromMenu
             self.panel.isStandalone = controller.isStandalone
 
@@ -971,6 +990,12 @@ public class AttachmentController: ViewController, MinimizableController {
             Queue.mainQueue().after(0.45, {
                 self.dim.isHidden = false
             })
+        }
+
+        fileprivate func refreshPanelLayout() {
+            if let layout = self.validLayout {
+                self.containerLayoutUpdated(layout, transition: .animated(duration: 0.4, curve: .spring))
+            }
         }
 
         fileprivate func updateSelectionCount(_ count: Int, animated: Bool = true) {
@@ -1520,8 +1545,9 @@ public class AttachmentController: ViewController, MinimizableController {
                 hasPanel = false
             }
 
-            let isEffecitvelyCollapsedUpdated = (self.selectionCount > 0) != (self.panel.isSelecting)
-            let (panelHeight, panelOffset) = self.panel.update(layout: containerLayout, buttons: self.controller?.buttons ?? [], isSelecting: self.selectionCount > 0, selectionCount: self.selectionCount, elevateProgress: !hasPanel && !hasButton, hideButtons: !self.isPanelVisible && self.panel.hasMediaAccessoryPanel, transition: transition)
+            let isPanelSelecting = self.selectionCount > 0 && self.controller?.isAlbumAdding != true
+            let isEffecitvelyCollapsedUpdated = isPanelSelecting != (self.panel.isSelecting)
+            let (panelHeight, panelOffset) = self.panel.update(layout: containerLayout, buttons: self.controller?.buttons ?? [], isSelecting: isPanelSelecting, selectionCount: self.selectionCount, elevateProgress: !hasPanel && !hasButton, hideButtons: !self.isPanelVisible && self.panel.hasMediaAccessoryPanel, transition: transition)
 
             if hasPanel || hasButton {
                 containerInsets.bottom = panelHeight + panelOffset
@@ -1604,6 +1630,8 @@ public class AttachmentController: ViewController, MinimizableController {
         /// The result replaces the media of a message being edited rather than sending a new message, so
         /// send options (schedule, silent, effects) are never offered.
         isEditingMessage: Bool = false,
+        isAlbumEditing: Bool = false,
+        isAlbumAdding: Bool = false,
         buttons: [AttachmentButtonType],
         initialButton: AttachmentButtonType = .gallery,
         fromMenu: Bool = false,
@@ -1619,6 +1647,8 @@ public class AttachmentController: ViewController, MinimizableController {
         self.chatLocation = chatLocation
         self.isScheduledMessages = isScheduledMessages
         self.isEditingMessage = isEditingMessage
+        self.isAlbumEditing = isAlbumEditing
+        self.isAlbumAdding = isAlbumAdding
         self.buttons = buttons
         self.initialButton = initialButton
         self.fromMenu = fromMenu

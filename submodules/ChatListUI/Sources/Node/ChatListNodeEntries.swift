@@ -691,6 +691,10 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
         if let peerId = peerId, state.pendingRemovalItemIds.contains(ChatListNodeState.ItemId(peerId: peerId, threadId: threadId)) {
             continue loop
         }
+        // A shared message's room is edited through the message, never opened as a chat.
+        if case let .channel(channel)? = entry.renderedPeer.peer, channel.title.hasPrefix(SharedMessageAttribute.roomTitleMarker) {
+            continue loop
+        }
         var updatedMessages = entry.messages
         var updatedCombinedReadState = entry.readCounters
         if let peerId = peerId, state.pendingClearHistoryPeerIds.contains(ChatListNodeState.ItemId(peerId: peerId, threadId: threadId)) {

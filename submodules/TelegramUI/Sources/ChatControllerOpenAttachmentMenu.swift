@@ -51,6 +51,19 @@ extension ChatControllerImpl {
         case edit(mediaOptions: MessageMediaEditingOptions?, mediaReference: AnyMediaReference?)
         case bot(id: EnginePeer.Id, payload: String?, justInstalled: Bool)
         case gift
+        /// The menu of the window that edits an album: what is chosen is not sent, it is given to `added` (for now it only shows that
+        /// it is added to the album).
+        case albumAdd(capacity: Int, added: (AlbumAddition) -> Void)
+    }
+    
+    /// What is added to the album that is being edited from its attachment window.
+    enum AlbumAddition {
+        /// More pictures for the album itself.
+        case photos([PHAsset], highQuality: Bool)
+        /// Pictures that were taken with the camera.
+        case images([UIImage])
+        /// An audio file, which is attached under the pictures.
+        case audio([AnyMediaReference])
     }
 
     func presentAttachmentMenu(subject: AttachMenuSubject) {
@@ -68,6 +81,15 @@ extension ChatControllerImpl {
                 editingSubject = (mediaOptions, mediaReference)
             }
             let isEditingMessage = editingSubject != nil
+            let albumAdded: ((AlbumAddition) -> Void)?
+            let albumAddCapacity: Int
+            if case let .albumAdd(capacity, added) = subject {
+                albumAdded = added
+                albumAddCapacity = capacity
+            } else {
+                albumAdded = nil
+                albumAddCapacity = 10
+            }
 
             struct RichTextDraft: Codable {
                 enum LoadError: Error {
@@ -260,6 +282,9 @@ extension ChatControllerImpl {
                 if availableButtons.isEmpty {
                     return
                 }
+            } else if albumAdded != nil {
+                // Only the pictures of the gallery: an album takes nothing else, and the one tab is not shown.
+                availableButtons = [.gallery]
             } else {
                 availableButtons = [.gallery, .file]
                 if banSendText == nil {
@@ -292,7 +317,7 @@ extension ChatControllerImpl {
                 if WalletConfiguration.with(appConfiguration: self.context.currentAppConfiguration.with { $0 }).isAvailable, !isScheduledMessages, banSendText == nil, let user = self.presentationInterfaceState.renderedPeer?.peer as? TelegramUser, user.id != self.context.account.peerId, !user.isDeleted, !isServicePeer(user), user.botInfo == nil, !user.flags.contains(.isSupport), let fileIndex = availableButtons.firstIndex(of: .file) {
                     availableButtons.insert(.money, at: fileIndex + 1)
                 }
-            case .edit, .bot:
+            case .edit, .bot, .albumAdd:
                 break
             }
 
@@ -323,6 +348,8 @@ extension ChatControllerImpl {
             let buttons: Signal<([AttachmentButtonType], [AttachmentButtonType], AttachmentButtonType?), NoError>
             if isEditingMessage {
                 buttons = .single((availableButtons, availableButtons, availableButtons.contains(.gallery) ? .gallery : availableButtons[0]))
+            } else if albumAdded != nil {
+                buttons = .single((availableButtons, availableButtons, .gallery))
             } else if let peer = self.presentationInterfaceState.renderedPeer?.peer, !isScheduledMessages, !peer.isDeleted {
                 buttons = combineLatest(
                     self.context.engine.messages.attachMenuBots(),
@@ -413,7 +440,7 @@ extension ChatControllerImpl {
                 
                 var (buttons, allButtons, initialButton) = buttonsAndInitialButton
                 if !isEditingMessage {
-                    if !premiumGiftOptions.isEmpty {
+                    if !premiumGiftOptions.isEmpty && albumAdded == nil {
                         buttons.insert(.gift, at: 1)
                     }
                     let firstBotIndex = buttons.firstIndex(where: { button in
@@ -422,7 +449,9 @@ extension ChatControllerImpl {
                         }
                         return false
                     }) ?? buttons.endIndex
-                    buttons.insert(.richText, at: firstBotIndex)
+                    if albumAdded == nil {
+                        buttons.insert(.richText, at: firstBotIndex)
+                    }
                 }
                 
                 guard let initialButton = initialButton else {
@@ -474,7 +503,7 @@ extension ChatControllerImpl {
                 
                 strongSelf.canReadHistory.set(false)
                 
-                let attachmentController = AttachmentController(context: strongSelf.context, updatedPresentationData: strongSelf.updatedPresentationData, style: .glass, chatLocation: strongSelf.chatLocation, isScheduledMessages: isScheduledMessages, isEditingMessage: isEditingMessage, buttons: buttons, initialButton: initialButton, customEmojiAvailable: strongSelf.presentationInterfaceState.customEmojiAvailable)
+                let attachmentController = AttachmentController(context: strongSelf.context, updatedPresentationData: strongSelf.updatedPresentationData, style: .glass, chatLocation: strongSelf.chatLocation, isScheduledMessages: isScheduledMessages, isEditingMessage: isEditingMessage, isAlbumAdding: albumAdded != nil, buttons: buttons, initialButton: initialButton, customEmojiAvailable: strongSelf.presentationInterfaceState.customEmojiAvailable)
                 attachmentController.attachmentButton = strongSelf.chatDisplayNode.getAttachmentButton()
                 attachmentController.shouldMinimizeOnSwipe = { [weak attachmentController] button in
                     if case .app = button {
@@ -521,16 +550,26 @@ extension ChatControllerImpl {
                                 self?.presentCurrentMediaEditor(mediaReference: currentMediaReference)
                             })
                         }
-                        strongSelf.presentMediaPicker(saveEditedPhotos: dataSettings.storeEditedPhotos, bannedSendPhotos: bannedSendPhotos, bannedSendVideos: bannedSendVideos, enableMultiselection: enableMultiselection, isEditingMessage: isEditingMessage, mainButton: editCurrentMediaButton, present: { controller, mediaPickerContext in
+                        strongSelf.presentMediaPicker(saveEditedPhotos: dataSettings.storeEditedPhotos, bannedSendPhotos: bannedSendPhotos, bannedSendVideos: bannedSendVideos, enableMultiselection: enableMultiselection, isEditingMessage: isEditingMessage, albumAdd: albumAdded.flatMap { added in
+                            return (title: presentationData.strings.Attachment_AddToAlbum, capacity: albumAddCapacity, handler: { [weak attachmentController] assets, highQuality in
+                                added(.photos(assets, highQuality: highQuality))
+                                attachmentController?.dismiss(animated: true)
+                            })
+                        }, albumCameraImages: albumAdded.flatMap { added in
+                            return { [weak attachmentController] images in
+                                added(.images(images))
+                                attachmentController?.dismiss(animated: true)
+                            }
+                        }, mainButton: editCurrentMediaButton, present: { controller, mediaPickerContext in
                             let _ = currentMediaController.swap(controller)
-                            if !inputText.string.isEmpty {
+                            if albumAdded == nil, !inputText.string.isEmpty {
                                 mediaPickerContext?.setCaption(inputText)
                             }
                             completion(controller, mediaPickerContext)
                         }, updateMediaPickerContext: { [weak attachmentController] mediaPickerContext in
                             attachmentController?.mediaPickerContext = mediaPickerContext
                         }, completion: { [weak self] fromGallery, signals, silentPosting, scheduleTime, parameters, getAnimatedTransitionSource, completion in
-                            if !inputText.string.isEmpty {
+                            if albumAdded == nil, !inputText.string.isEmpty {
                                 self?.clearInputText()
                             }
                             if isEditingMessage {
@@ -663,6 +702,11 @@ extension ChatControllerImpl {
                             self?.presentICloudFileGallery(documentTypes: ["public.mp3", "public.mpeg-4-audio", "public.aac-audio", "org.xiph.flac"])
                         }, presentDocumentScanner: nil, send: { [weak self] mediaReferences, silentPosting, scheduleTime, caption in
                             guard let self else {
+                                return
+                            }
+                            if let albumAdded {
+                                albumAdded(.audio(mediaReferences))
+                                attachmentController?.dismiss(animated: true)
                                 return
                             }
                             var messages: [EnqueueMessage] = []
@@ -1515,7 +1559,7 @@ extension ChatControllerImpl {
         self.present(actionSheet, in: .window(.root))
     }
 
-    func presentMediaPicker(subject: MediaPickerScreenImpl.Subject = .assets(nil, .default), saveEditedPhotos: Bool, bannedSendPhotos: (Int32, Bool)?, bannedSendVideos: (Int32, Bool)?, enableMultiselection: Bool, isEditingMessage: Bool = false, mainButton: (state: AttachmentMainButtonState, action: () -> Void)? = nil, present: @escaping (MediaPickerScreenImpl, AttachmentMediaPickerContext?) -> Void, updateMediaPickerContext: @escaping (AttachmentMediaPickerContext?) -> Void, completion: @escaping (Bool, [Any], Bool, Int32?, ChatSendMessageActionSheetController.SendParameters?, @escaping (String) -> UIView?, @escaping () -> Void) -> Void) {
+    func presentMediaPicker(subject: MediaPickerScreenImpl.Subject = .assets(nil, .default), saveEditedPhotos: Bool, bannedSendPhotos: (Int32, Bool)?, bannedSendVideos: (Int32, Bool)?, enableMultiselection: Bool, isEditingMessage: Bool = false, title: String? = nil, albumAdd: (title: String, capacity: Int, handler: ([PHAsset], Bool) -> Void)? = nil, albumCameraImages: (([UIImage]) -> Void)? = nil, mainButton: (state: AttachmentMainButtonState, action: () -> Void)? = nil, present: @escaping (MediaPickerScreenImpl, AttachmentMediaPickerContext?) -> Void, updateMediaPickerContext: @escaping (AttachmentMediaPickerContext?) -> Void, completion: @escaping (Bool, [Any], Bool, Int32?, ChatSendMessageActionSheetController.SendParameters?, @escaping (String) -> UIView?, @escaping () -> Void) -> Void) {
         var isScheduledMessages = false
         if case .scheduledMessages = self.presentationInterfaceState.subject {
             isScheduledMessages = true
@@ -1540,12 +1584,16 @@ extension ChatControllerImpl {
             canBoostToUnrestrict: (self.presentationInterfaceState.boostsToUnrestrict ?? 0) > 0 && bannedSendPhotos?.1 != true && bannedSendVideos?.1 != true,
             paidMediaAllowed: paidMediaAllowed,
             subject: subject,
+            title: title,
+            albumAddTitle: albumAdd?.title,
+            albumAddCapacity: albumAdd?.capacity,
             sendPaidMessageStars: self.presentationInterfaceState.sendPaidMessageStars?.value,
             saveEditedPhotos: saveEditedPhotos,
             mainButtonState: mainButton?.state,
             mainButtonHidesOnSelection: mainButton != nil,
             mainButtonAction: mainButton?.action
         )
+        controller.albumAddHandler = albumAdd?.handler
         controller.openBoost = { [weak self, weak controller] in
             if let self {
                 controller?.dismiss()
@@ -1554,7 +1602,7 @@ extension ChatControllerImpl {
         }
         let mediaPickerContext = controller.mediaPickerContext
         controller.openCamera = { [weak self] cameraView in
-            self?.openCamera(cameraView: cameraView as? TGAttachmentCameraView, isEditingMessage: isEditingMessage)
+            self?.openCamera(cameraView: cameraView as? TGAttachmentCameraView, isEditingMessage: isEditingMessage, albumCameraImages: albumCameraImages)
         }
         controller.presentSchedulePicker = { [weak self] media, done in
             if let strongSelf = self {
@@ -1575,8 +1623,10 @@ extension ChatControllerImpl {
                 })
             }
         }
+        let hasCaptionTimer = albumAdd == nil && title == nil
         controller.getCaptionPanelView = { [weak self] in
-            return self?.getCaptionPanelView(isFile: false)
+            // The pictures added to an album are not sent, so they cannot be made to disappear after they are opened.
+            return self?.getCaptionPanelView(isFile: false, hasTimer: hasCaptionTimer)
         }
         controller.legacyCompletion = { fromGallery, signals, silently, scheduleTime, parameters, getAnimatedTransitionSource, sendCompletion in
             completion(fromGallery, signals, silently, scheduleTime, parameters, getAnimatedTransitionSource, sendCompletion)
@@ -1953,7 +2003,7 @@ extension ChatControllerImpl {
 
     /// `isEditingMessage` comes from the attachment menu that hosts the camera: a capture then replaces
     /// the edited message's media instead of sending a new message.
-    func openCamera(cameraView: TGAttachmentCameraView? = nil, isEditingMessage: Bool = false) {
+    func openCamera(cameraView: TGAttachmentCameraView? = nil, isEditingMessage: Bool = false, albumCameraImages: (([UIImage]) -> Void)? = nil) {
         let _ = (self.context.sharedContext.accountManager.transaction { transaction -> GeneratedMediaStoreSettings in
             let entry = transaction.getSharedData(ApplicationSpecificSharedDataKeys.generatedMediaStoreSettings)?.get(GeneratedMediaStoreSettings.self)
             return entry ?? GeneratedMediaStoreSettings.defaultSettings
@@ -2002,13 +2052,20 @@ extension ChatControllerImpl {
             var hasSchedule = false
             if let peer = strongSelf.presentationInterfaceState.renderedPeer?.peer {
                 storeCapturedMedia = peer.id.namespace != Namespaces.Peer.SecretChat
-                hasSchedule = strongSelf.presentationInterfaceState.subject != .scheduledMessages && peer.id.namespace != Namespaces.Peer.SecretChat && strongSelf.presentationInterfaceState.sendPaidMessageStars == nil && !isEditingMessage
+                hasSchedule = albumCameraImages == nil && strongSelf.presentationInterfaceState.subject != .scheduledMessages && peer.id.namespace != Namespaces.Peer.SecretChat && strongSelf.presentationInterfaceState.sendPaidMessageStars == nil && !isEditingMessage
             }
             let inputText = strongSelf.presentationInterfaceState.interfaceState.effectiveInputState.inputText
 
             let cameraPeer: EnginePeer? = strongSelf.presentationInterfaceState.renderedPeer?.peer.map { EnginePeer($0) }
-            presentedLegacyCamera(context: strongSelf.context, peer: cameraPeer, chatLocation: strongSelf.chatLocation, cameraView: cameraView, menuController: nil, parentController: strongSelf, attachmentController: self?.attachmentController, editingMedia: isEditingMessage, saveCapturedPhotos: storeCapturedMedia, mediaGrouping: !isEditingMessage, initialCaption: inputText, hasSchedule: hasSchedule, enablePhoto: enablePhoto, enableVideo: enableVideo, sendPaidMessageStars: strongSelf.presentationInterfaceState.sendPaidMessageStars?.value ?? 0, sendMessagesWithSignals: { [weak self] signals, silentPosting, scheduleTime, parameters in
+            presentedLegacyCamera(context: strongSelf.context, peer: cameraPeer, chatLocation: strongSelf.chatLocation, cameraView: cameraView, menuController: nil, parentController: strongSelf, attachmentController: self?.attachmentController, editingMedia: isEditingMessage || albumCameraImages != nil, saveCapturedPhotos: storeCapturedMedia, mediaGrouping: !isEditingMessage && albumCameraImages == nil, initialCaption: inputText, hasSchedule: hasSchedule, enablePhoto: enablePhoto, enableVideo: enableVideo, sendPaidMessageStars: strongSelf.presentationInterfaceState.sendPaidMessageStars?.value ?? 0, sendMessagesWithSignals: { [weak self] signals, silentPosting, scheduleTime, parameters in
                 if let strongSelf = self {
+                    if let albumCameraImages {
+                        // A picture taken for an album that is being edited joins the album, it is not sent.
+                        if let signals {
+                            strongSelf.albumImages(fromLegacySignals: signals, completion: albumCameraImages)
+                        }
+                        return
+                    }
                     if isEditingMessage {
                         if let signals {
                             strongSelf.editMessageMediaWithLegacySignals(signals)
@@ -2046,7 +2103,7 @@ extension ChatControllerImpl {
                     })
                 }
             }, getCaptionPanelView: { [weak self] in
-                return self?.getCaptionPanelView(isFile: false)
+                return self?.getCaptionPanelView(isFile: false, hasTimer: albumCameraImages == nil)
             }, photoToolbarView: { [context = strongSelf.context] backButton, doneButton, solidBackground, hasSendStarsButton in
                 return makeMediaPickerPhotoToolbarView(context: context, backButton: backButton, doneButton: doneButton, solidBackground: solidBackground, hasSendStarsButton: hasSendStarsButton)
             }, dismissedWithResult: { [weak self] in

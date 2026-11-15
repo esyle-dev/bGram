@@ -149,6 +149,8 @@ import GlobalControlPanelsContext
 import ChatSearchNavigationContentNode
 import ChatAgeRestrictionAlertController
 import TextProcessingScreen
+import SharedMessageSetupScreen
+import RichTextAttachmentScreen
 
 public final class ChatControllerOverlayPresentationData {
     public let expandData: (ASDisplayNode?, () -> Void)
@@ -6051,6 +6053,36 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         controllerInteraction.enableFullTranslucency = context.sharedContext.energyUsageSettings.fullTranslucency
         
         self.controllerInteraction = controllerInteraction
+        controllerInteraction.openSharedMessageEditor = { [weak self] messageId in
+            guard let self else {
+                return
+            }
+            let _ = (self.context.engine.data.get(TelegramEngine.EngineData.Item.Messages.Message(id: messageId))
+            |> deliverOnMainQueue).startStandalone(next: { [weak self] message in
+                guard let self, let message, let navigationController = self.effectiveNavigationController else {
+                    return
+                }
+                openSharedMessageEditor(context: self.context, navigationController: navigationController, message: message, presentAttachmentMenu: { [weak self] request, completion in
+                    self?.presentRichTextAttachmentMenu(request: request, completion: completion)
+                }, presentFormulaEditor: { [weak self] initialValue, completion in
+                    self?.presentFormulaEditor(initialValue: initialValue, completion: completion)
+                }, replyInChat: { [weak self] messageId, text in
+                    // "Reply in Chat" from a version: a reply to the message, the input naming the version.
+                    guard let self else {
+                        return
+                    }
+                    self.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
+                        var updatedState = state.updatedInterfaceState { interfaceState in
+                            return interfaceState
+                                .withUpdatedReplyMessageSubject(ChatInterfaceState.ReplyMessageSubject(messageId: messageId, quote: nil, innerSubject: nil))
+                                .withUpdatedEffectiveInputState(ChatTextInputState(inputText: NSAttributedString(string: text)))
+                        }
+                        updatedState = updatedState.updatedInputMode({ _ in .text })
+                        return updatedState
+                    })
+                })
+            })
+        }
         controllerInteraction.requestWalletTransferArrival = { [weak self] message in
             self?.walletTransferAnimationCoordinator().requestArrival(message)
         }

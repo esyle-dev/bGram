@@ -1266,7 +1266,7 @@ extension StoreMessage {
                     threadId = Int64(quickReplyShortcutId)
                 }
                 
-                let messageText = message
+                var messageText = message
                 var medias: [Media] = []
                 
                 var consumableContent: (Bool, Bool)? = nil
@@ -1407,6 +1407,17 @@ extension StoreMessage {
                         entitiesAttribute = attribute
                         attributes.append(attribute)
                     }
+                }
+            
+                // A shared message carries its settings in a marker line in front of the text; the
+                // line comes off here and the attribute takes its place.
+                if let currentEntities = entitiesAttribute, let stripped = sharedMessageStrippingMarker(text: messageText, entities: currentEntities.entities, sharedAt: date, authorId: authorId) {
+                    messageText = stripped.text
+                    attributes.removeAll(where: { $0 is TextEntitiesMessageAttribute })
+                    let updatedEntities = TextEntitiesMessageAttribute(entities: stripped.entities)
+                    entitiesAttribute = updatedEntities
+                    attributes.append(updatedEntities)
+                    attributes.append(stripped.attribute)
                 }
             
                 if let richMessage = messageData.richMessage {

@@ -85,6 +85,39 @@ private func findQuoteRange(string: String, quoteText: String, offset: Int?) -> 
     return currentRange
 }
 
+/// Remembers which shared messages the user expanded, so the choice survives node reuse. Kept in memory only.
+private final class SharedMessageExpansionStore {
+    static let shared = SharedMessageExpansionStore()
+    
+    private let lock = NSLock()
+    private var expandedIds = Set<EngineMessage.Id>()
+    
+    func isExpanded(_ id: EngineMessage.Id) -> Bool {
+        self.lock.lock()
+        defer {
+            self.lock.unlock()
+        }
+        return self.expandedIds.contains(id)
+    }
+    
+    func setExpanded(_ id: EngineMessage.Id, _ expanded: Bool) {
+        self.lock.lock()
+        if expanded {
+            self.expandedIds.insert(id)
+        } else {
+            self.expandedIds.remove(id)
+        }
+        self.lock.unlock()
+    }
+}
+
+/// The control under a shared message's text, on the line of the time: it expands a collapsed text or
+/// collapses an expanded one.
+private enum SharedMessageToggle {
+    case showMore
+    case showLess
+}
+
 public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     public final class ContainerNode: ASDisplayNode {
     }
@@ -118,6 +151,11 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     
     private var expandedBlockIds: Set<Int> = Set()
     private var appliedExpandedBlockIds: Set<Int>?
+    private var sharedToggle: SharedMessageToggle?
+    /// How far the status frame sits below the toggle line's bottom so the time's glyphs, not its frame,
+    /// end on the same line as "Show more"'s.
+    private static let sharedStatusBottomOffset: CGFloat = 0.0
+    private let sharedToggleNode: TextNode
     private var displayContentsUnderSpoilers: (value: Bool, location: CGPoint?) = (false, nil)
     
     private var isSummaryApplied = false
@@ -150,10 +188,17 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
         self.textNode = InteractiveTextNodeWithEntities()
         
         self.textAccessibilityOverlayNode = TextAccessibilityOverlayNode()
-        
+
+        self.sharedToggleNode = TextNode()
+        self.sharedToggleNode.isUserInteractionEnabled = false
+        self.sharedToggleNode.contentMode = .topLeft
+        self.sharedToggleNode.contentsScale = UIScreenScale
+        self.sharedToggleNode.isHidden = true
+
         super.init(lottieSettings: lottieSettings)
-        
+
         self.addSubnode(self.containerNode)
+        self.addSubnode(self.sharedToggleNode)
         
         self.textNode.textNode.isUserInteractionEnabled = true
         self.textNode.textNode.contentMode = .topLeft
@@ -220,6 +265,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
         
         let textLayout = InteractiveTextNodeWithEntities.asyncLayout(self.textNode)
         let statusLayout = ChatMessageDateAndStatusNode.asyncLayout(self.statusNode)
+        let makeSharedToggleLayout = TextNode.asyncLayout(self.sharedToggleNode)
         
         let currentCachedChatMessageText = self.cachedChatMessageText
         let expandedBlockIds = self.expandedBlockIds
@@ -243,6 +289,10 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                             topInset = layoutConstants.text.bubbleInsets.top - 2.0
                         case .header, .footer, .media, .reactions:
                             topInset = layoutConstants.text.bubbleInsets.top
+                        }
+                        // Exactly 4pt under the title of a shared message.
+                        if item.message.attributes.contains(where: { $0 is SharedMessageAttribute }) {
+                            topInset = 4.0
                         }
                     default:
                         topInset = layoutConstants.text.bubbleInsets.top
@@ -656,6 +706,18 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     }
                 }
                 
+                let isSharedMessage = item.message.attributes.contains(where: { $0 is SharedMessageAttribute })
+                let isSharedExpanded = SharedMessageExpansionStore.shared.isExpanded(item.message.id)
+                let sharedCollapsedLineCount = 10
+                if isSharedMessage && !isSharedExpanded && !item.presentationData.isPreview {
+                    // The "Show more" control sits under the text, on the line of the time; the cut
+                    // itself only ends in an ellipsis.
+                    maximumNumberOfLines = sharedCollapsedLineCount
+                    customTruncationToken = { baseFont, _ in
+                        return NSAttributedString(string: "\u{2026}", font: Font.regular(baseFont.pointSize), textColor: messageTheme.primaryTextColor)
+                    }
+                }
+                
                 var hasDraft = false
                 if item.message.attributes.contains(where: { $0 is TypingDraftMessageAttribute }) {
                     hasDraft = true
@@ -682,6 +744,28 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     computeCharacterRects: true
                 ))
                 
+                // "Show more" while the collapsed text is cut, "Show less" while the expanded text is
+                // longer than the cut; either forces the time onto its own line, which it shares.
+                var sharedToggle: SharedMessageToggle?
+                if isSharedMessage && !item.presentationData.isPreview && statusType != nil {
+                    if !isSharedExpanded && textLayout.truncated {
+                        sharedToggle = .showMore
+                    } else if isSharedExpanded && textLayout.numberOfLines > sharedCollapsedLineCount {
+                        sharedToggle = .showLess
+                    }
+                }
+                var sharedToggleLayout: (TextNodeLayout, () -> TextNode?)?
+                if let sharedToggle {
+                    let toggleText: String
+                    switch sharedToggle {
+                    case .showMore:
+                        toggleText = item.presentationData.strings.SharedMessage_ShowMore
+                    case .showLess:
+                        toggleText = item.presentationData.strings.SharedMessage_ShowLess
+                    }
+                    sharedToggleLayout = makeSharedToggleLayout(TextNodeLayoutArguments(attributedString: NSAttributedString(string: toggleText, font: Font.regular(15.0), textColor: messageTheme.accentTextColor), backgroundColor: nil, maximumNumberOfLines: 1, truncationType: .end, constrainedSize: CGSize(width: max(1.0, textConstrainedSize.width), height: CGFloat.greatestFiniteMagnitude), alignment: .natural, lineSpacing: 0.0, cutout: nil, insets: UIEdgeInsets()))
+                }
+
                 var maxGlyphCount = currentMaxGlyphCount
                 if maxGlyphCount == nil && (hasDraft || hadDraft) {
                     maxGlyphCount = previousGlyphCount
@@ -699,7 +783,9 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     }
                     
                     let trailingWidthToMeasure: CGFloat
-                    if let lastSegment = textLayout.segments.last, lastSegment.hasRTL {
+                    if sharedToggle != nil {
+                        trailingWidthToMeasure = 10000.0
+                    } else if let lastSegment = textLayout.segments.last, lastSegment.hasRTL {
                         trailingWidthToMeasure = 10000.0
                     } else if let lastSegment = textLayout.segments.last, lastSegment.hasBlockQuote {
                         trailingWidthToMeasure = textLayout.size.width
@@ -717,7 +803,8 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     statusSuggestedWidthAndContinue = statusLayout(ChatMessageDateAndStatusNode.Arguments(
                         context: item.context,
                         presentationData: item.presentationData,
-                        edited: edited && !item.presentationData.isPreview,
+                        // A shared message is edited by design; its title row says when, so no "edited" here.
+                        edited: edited && !item.presentationData.isPreview && !isSharedMessage,
                         impressionCount: !item.presentationData.isPreview ? viewCount : nil,
                         dateText: dateText,
                         type: statusType,
@@ -768,17 +855,24 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     let statusSizeAndApply = statusSuggestedWidthAndContinue?.1(boundingWidth - sideInsets)
                     
                     boundingSize = textFrameWithoutInsets.size
+                    // A shared message's "Show more"/"Show less" line: 4pt under the text and 8pt over the
+                    // Edit button (6pt here plus the footer's own 2pt), the time bottom-aligned with it.
+                    var sharedToggleLineHeight: CGFloat?
+                    if let statusSizeAndApply, !hasDraft, let sharedToggleLayout {
+                        sharedToggleLineHeight = max(4.0 + sharedToggleLayout.0.size.height, statusSizeAndApply.0.height)
+                    }
                     if let statusSizeAndApply = statusSizeAndApply, !hasDraft {
-                        boundingSize.height += statusSizeAndApply.0.height
+                        boundingSize.height += sharedToggleLineHeight ?? statusSizeAndApply.0.height
                     }
 
                     boundingSize.width += layoutConstants.text.bubbleInsets.left + layoutConstants.text.bubbleInsets.right
                     
-                    boundingSize.height += topInset + bottomInset
+                    boundingSize.height += topInset + (sharedToggleLineHeight != nil ? 6.0 : bottomInset)
                     
                     return (boundingSize, { [weak self] animation, synchronousLoads, itemApply in
                         if let strongSelf = self {
                             strongSelf.item = item
+                            strongSelf.sharedToggle = sharedToggle
                             if let updatedCachedChatMessageText = updatedCachedChatMessageText {
                                 strongSelf.cachedChatMessageText = updatedCachedChatMessageText
                             }
@@ -878,6 +972,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                             animation.animator.updateBounds(layer: strongSelf.textNode.textNode.layer, bounds: CGRect(origin: CGPoint(), size: realTextFrame.size), completion: nil)
                             
                             
+                            
                             switch strongSelf.visibility {
                             case .none:
                                 strongSelf.textNode.visibilityRect = nil
@@ -906,8 +1001,21 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                             
                             if let statusSizeAndApply {
                                 let statusNode = statusSizeAndApply.1(strongSelf.statusNode == nil ? .None : animation)
-                                let statusFrame = CGRect(origin: CGPoint(x: textFrameWithoutInsets.minX, y: textFrameWithoutInsets.maxY), size: statusSizeAndApply.0)
-                                
+                                var statusFrame = CGRect(origin: CGPoint(x: textFrameWithoutInsets.minX, y: textFrameWithoutInsets.maxY), size: statusSizeAndApply.0)
+
+                                // The toggle and the time share one line and one bottom edge (the time at
+                                // the right, the toggle at the left), reactions above the time if any.
+                                if let sharedToggleLayout, let sharedToggleLineHeight {
+                                    let _ = sharedToggleLayout.1()
+                                    let toggleSize = sharedToggleLayout.0.size
+                                    let lineBottom = textFrameWithoutInsets.maxY + sharedToggleLineHeight
+                                    statusFrame.origin.y = lineBottom - statusFrame.height + ChatMessageTextBubbleContentNode.sharedStatusBottomOffset
+                                    strongSelf.sharedToggleNode.frame = CGRect(origin: CGPoint(x: textFrameWithoutInsets.minX, y: lineBottom - toggleSize.height), size: toggleSize)
+                                    strongSelf.sharedToggleNode.isHidden = false
+                                } else {
+                                    strongSelf.sharedToggleNode.isHidden = true
+                                }
+
                                 if strongSelf.statusNode !== statusNode {
                                     strongSelf.statusNode?.removeFromSupernode()
                                     strongSelf.statusNode = statusNode
@@ -934,6 +1042,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                                     animation.animator.updateBounds(layer: statusNode.layer, bounds: CGRect(origin: CGPoint(), size: statusFrame.size), completion: nil)
                                 }
                             } else if let statusNode = strongSelf.statusNode {
+                                strongSelf.sharedToggleNode.isHidden = true
                                 strongSelf.statusNode = nil
                                 statusNode.removeFromSupernode()
                             }
@@ -1128,6 +1237,22 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     }
     
     override public func tapActionAtPoint(_ point: CGPoint, gesture: TapLongTapOrDoubleTapGesture, isEstimating: Bool) -> ChatMessageBubbleContentTapAction {
+        let action = self.baseTapActionAtPoint(point, gesture: gesture, isEstimating: isEstimating)
+        // The bubble asks every content node about a tap wherever it landed, so only a tap on the
+        // "Show more" / "Show less" control (with some room around it) toggles the text.
+        if case .tap = gesture, let toggle = self.sharedToggle, !self.sharedToggleNode.isHidden, self.sharedToggleNode.frame.insetBy(dx: -10.0, dy: -8.0).contains(point), case .none = action.content {
+            return ChatMessageBubbleContentTapAction(content: .custom({ [weak self] in
+                guard let self, let item = self.item else {
+                    return
+                }
+                SharedMessageExpansionStore.shared.setExpanded(item.message.id, toggle == .showMore)
+                item.controllerInteraction.requestMessageUpdate(item.message.id, false, nil)
+            }))
+        }
+        return action
+    }
+    
+    private func baseTapActionAtPoint(_ point: CGPoint, gesture: TapLongTapOrDoubleTapGesture, isEstimating: Bool) -> ChatMessageBubbleContentTapAction {
         if case .tap = gesture {
         } else {
             if let item = self.item, let subject = item.associatedData.subject, case .messageOptions = subject {

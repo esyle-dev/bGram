@@ -14,6 +14,7 @@ public func mediaPasteboardScreen(
     updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil,
     peer: EnginePeer,
     subjects: [MediaPickerScreenImpl.Subject.Media],
+    isAlbumEditing: Bool = false,
     presentMediaPicker: @escaping (_ subject: MediaPickerScreenImpl.Subject, _ saveEditedPhotos: Bool, _ bannedSendPhotos: (Int32, Bool)?, _ bannedSendVideos: (Int32, Bool)?, _ present: @escaping (MediaPickerScreenImpl, AttachmentMediaPickerContext?) -> Void) -> Void,
     getSourceRect: (() -> CGRect?)? = nil,
     customEmojiAvailable: Bool = true
@@ -23,6 +24,7 @@ public func mediaPasteboardScreen(
         updatedPresentationData: updatedPresentationData,
         style: .glass,
         chatLocation: .peer(id: peer.id),
+        isAlbumEditing: isAlbumEditing,
         buttons: [.standalone],
         initialButton: .standalone,
         customEmojiAvailable: customEmojiAvailable

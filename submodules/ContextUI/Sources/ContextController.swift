@@ -738,6 +738,19 @@ public protocol ContextController: ViewController, StandalonePresentableControll
     func dismissWithReaction(value: MessageReaction.Reaction, targetView: UIView, hideNode: Bool, animateTargetContainer: UIView?, addStandaloneReactionAnimation: ((StandaloneReactionAnimation) -> Void)?, onHit: (() -> Void)?, completion: (() -> Void)?)
     func animateDismissalIfNeeded()
     func cancelReactionAnimation()
+    
+    /// While the content that is lifted is taller than the screen, the finger scrolls it together with the menu. With `isDriven` the
+    /// finger does not scroll it any more, and only `scrollContent(by:)` does: by the distance it is given (positive moves the
+    /// content up), and never past either end, with no bounce. With `menuSelection` the finger that is down can slide over the menu to
+    /// choose an item, as in any menu, even when the content is taller than the screen (where it would scroll).
+    func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool)
+    func scrollContent(by delta: CGFloat)
+    
+    /// Highlights the item of the menu that is under a point of the window (nothing is highlighted for nil or a point that is not on
+    /// an item), as when a finger that opened the menu slides over it, and `finishMenuHighlight` runs the highlighted item or, with
+    /// `performAction` false, only takes the highlight away.
+    func highlightMenu(atWindowPoint point: CGPoint?)
+    func finishMenuHighlight(performAction: Bool)
 }
 
 public func makeContextController(

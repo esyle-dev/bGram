@@ -305,10 +305,17 @@ private class MediaPickerSelectedItemNode: ASDisplayNode {
         }
     }
     
+    private var isMediaHidden = false
+    
     func updateHiddenMedia() {
-        let wasHidden = self.isHidden
-        self.isHidden = self.interaction?.hiddenMediaId == asset.uniqueIdentifier
-        if !self.isHidden && wasHidden {
+        // The picture that is open in full screen is made all but invisible, not hidden: a node that is hidden is taken out of the
+        // visible range, loses its picture, and has to load it again when it comes back (a blank place for seconds).
+        let wasHidden = self.isMediaHidden
+        self.isMediaHidden = self.interaction?.hiddenMediaId == asset.uniqueIdentifier
+        if self.isMediaHidden != wasHidden {
+            self.alpha = self.isMediaHidden ? 0.01 : 1.0
+        }
+        if !self.isMediaHidden && wasHidden {
             if let checkNode = self.checkNode, checkNode.alpha > 0.0 {
                 checkNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.3)
             }
@@ -594,6 +601,100 @@ private class MessageBackgroundNode: ASDisplayNode {
         var backgroundWallpaperFrame = self.backgroundWallpaperNode.frame
         backgroundWallpaperFrame.origin.x += rect.minX
         backgroundWallpaperFrame.origin.y += rect.minY
+    }
+}
+
+/// An audio file that is attached to the album that is being edited: it is shown in the message, under the pictures.
+struct MediaPickerAlbumAudio: Equatable {
+    var title: String
+    var subtitle: String
+}
+
+/// The text of the album that is being edited, which is shown in its preview, above the pictures or under them.
+struct MediaPickerAlbumCaption: Equatable {
+    var text: NSAttributedString
+    var isAbove: Bool
+}
+
+/// The row of the audio file in the preview of the message: a play button, the name, the size and the cross that takes the file away.
+private final class MediaPickerAlbumAudioRowView: UIView {
+    private let playBackground = UIView()
+    private let playIcon = UIImageView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let closeButton = UIButton(type: .custom)
+    private let closeIcon = UIImageView()
+    
+    var onClose: (() -> Void)?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        
+        self.playBackground.isUserInteractionEnabled = false
+        self.addSubview(self.playBackground)
+        self.playIcon.contentMode = .center
+        self.playBackground.addSubview(self.playIcon)
+        self.titleLabel.font = Font.regular(16.0)
+        self.addSubview(self.titleLabel)
+        self.subtitleLabel.font = Font.regular(13.0)
+        self.addSubview(self.subtitleLabel)
+        self.closeIcon.contentMode = .center
+        self.closeIcon.isUserInteractionEnabled = false
+        self.addSubview(self.closeIcon)
+        self.closeButton.addTarget(self, action: #selector(self.closePressed), for: .touchUpInside)
+        self.addSubview(self.closeButton)
+    }
+    
+    required init?(coder: NSCoder) {
+        preconditionFailure()
+    }
+    
+    @objc private func closePressed() {
+        self.onClose?()
+    }
+    
+    func update(size: CGSize, audio: MediaPickerAlbumAudio, theme: PresentationTheme) {
+        let colors = theme.chat.message.outgoing
+        let iconSize = CGSize(width: 44.0, height: 44.0)
+        self.playBackground.backgroundColor = colors.accentControlColor
+        self.playBackground.layer.cornerRadius = iconSize.height * 0.5
+        self.playBackground.frame = CGRect(origin: CGPoint(x: 0.0, y: floor((size.height - iconSize.height) * 0.5)), size: iconSize)
+        self.playIcon.image = generateImage(CGSize(width: 18.0, height: 20.0), rotatedContext: { size, context in
+            context.clear(CGRect(origin: CGPoint(), size: size))
+            context.setFillColor(UIColor.white.cgColor)
+            context.move(to: CGPoint(x: 3.0, y: 1.0))
+            context.addLine(to: CGPoint(x: size.width - 1.0, y: size.height * 0.5))
+            context.addLine(to: CGPoint(x: 3.0, y: size.height - 1.0))
+            context.closePath()
+            context.fillPath()
+        })
+        self.playIcon.frame = CGRect(origin: CGPoint(), size: iconSize)
+        
+        self.titleLabel.text = audio.title
+        self.titleLabel.textColor = colors.fileTitleColor
+        self.subtitleLabel.text = audio.subtitle
+        self.subtitleLabel.textColor = colors.fileDescriptionColor
+        
+        let closeSize: CGFloat = 36.0
+        let textX = iconSize.width + 8.0
+        let textWidth = max(0.0, size.width - textX - closeSize - 4.0)
+        self.titleLabel.frame = CGRect(x: textX, y: floor(size.height * 0.5) - 20.0, width: textWidth, height: 20.0)
+        self.subtitleLabel.frame = CGRect(x: textX, y: floor(size.height * 0.5) + 1.0, width: textWidth, height: 16.0)
+        
+        self.closeIcon.image = generateImage(CGSize(width: 10.0, height: 10.0), rotatedContext: { size, context in
+            context.clear(CGRect(origin: CGPoint(), size: size))
+            context.setStrokeColor(colors.fileDescriptionColor.cgColor)
+            context.setLineWidth(1.6)
+            context.setLineCap(.round)
+            context.move(to: CGPoint(x: 1.0, y: 1.0))
+            context.addLine(to: CGPoint(x: size.width - 1.0, y: size.height - 1.0))
+            context.move(to: CGPoint(x: size.width - 1.0, y: 1.0))
+            context.addLine(to: CGPoint(x: 1.0, y: size.height - 1.0))
+            context.strokePath()
+        })
+        let closeFrame = CGRect(x: size.width - closeSize - 2.0, y: floor((size.height - closeSize) * 0.5), width: closeSize, height: closeSize)
+        self.closeIcon.frame = closeFrame
+        self.closeButton.frame = closeFrame
     }
 }
 
@@ -945,6 +1046,36 @@ final class MediaPickerSelectedListNode: ASDisplayNode, ASScrollViewDelegate, AS
         }
     }
     
+    /// The audio file attached to the album, which is shown under its pictures.
+    var albumAudio: MediaPickerAlbumAudio? {
+        didSet {
+            if self.albumAudio != oldValue {
+                self.updateItems(transition: .animated(duration: 0.3, curve: .spring))
+            }
+        }
+    }
+    var albumAudioRemoved: (() -> Void)?
+    private var albumAudioRowView: MediaPickerAlbumAudioRowView?
+    
+    /// The text of the album, which is shown in the message.
+    var albumCaption: MediaPickerAlbumCaption? {
+        didSet {
+            if self.albumCaption != oldValue {
+                self.updateItems(transition: .animated(duration: 0.3, curve: .spring))
+            }
+        }
+    }
+    private var albumCaptionLabel: UILabel?
+    
+    /// What is written over the message in place of "Message Preview" while an album is edited: how many pictures it has places for.
+    var albumSlotsText: String? {
+        didSet {
+            if self.albumSlotsText != oldValue {
+                self.updateItems(transition: .animated(duration: 0.3, curve: .spring))
+            }
+        }
+    }
+    
     private var messageNodes: [ListViewItemNode]?
     private func updateItems(transition: ContainedViewLayoutTransition) {
         guard let (size, insets, items, grouped, theme, wallpaper, bubbleCorners) = self.validLayout else {
@@ -1049,7 +1180,7 @@ final class MediaPickerSelectedListNode: ASDisplayNode, ASScrollViewDelegate, AS
             var peers = SimpleDictionary<PeerId, Peer>()
             peers[peerId] = TelegramUser(id: peerId, accessHash: nil, firstName: "", lastName: "", username: nil, phone: nil, photo: [], botInfo: nil, restrictionInfo: nil, flags: [], emojiStatus: nil, usernames: [], storiesHidden: nil, nameColor: nil, backgroundEmojiId: nil, profileColor: nil, profileBackgroundEmojiId: nil, subscriberCount: nil, verificationIconFileId: nil)
             
-            let previewText = groupLayouts.count > 1 ? presentationData.strings.Attachment_MessagesPreview : presentationData.strings.Attachment_MessagePreview
+            let previewText = self.albumSlotsText ?? (groupLayouts.count > 1 ? presentationData.strings.Attachment_MessagesPreview : presentationData.strings.Attachment_MessagePreview)
             
             let previewMessage = Message(stableId: 0, stableVersion: 0, id: MessageId(peerId: peerId, namespace: 0, id: 0), globallyUniqueId: nil, groupingKey: nil, groupInfo: nil, threadId: nil, timestamp: 0, flags: [], tags: [], globalTags: [], localTags: [], customTags: [], forwardInfo: nil, author: peers[peerId], text: "", attributes: [], media: [TelegramMediaAction(action: .customText(text: previewText, entities: [], additionalAttributes: nil))], peers: peers, associatedMessages: SimpleDictionary(), associatedMessageIds: [], associatedMedia: [:], associatedThreadInfo: nil, associatedStories: [:])
             let previewItem = self.context.sharedContext.makeChatMessagePreviewItem(context: context, messages: [previewMessage], theme: theme, strings: presentationData.strings, wallpaper: wallpaper, fontSize: presentationData.chatFontSize, chatBubbleCorners: bubbleCorners, dateTimeFormat: presentationData.dateTimeFormat, nameOrder: presentationData.nameDisplayOrder, forcedResourceStatus: nil, tapMessage: nil, clickThroughMessage: nil, backgroundNode: self.wallpaperBackgroundNode, availableReactions: nil, accountPeer: nil, isCentered: true, isPreview: true, isStandalone: false, rank: nil, rankRole: nil, isGiftMessageComposerPreview: false)
@@ -1125,6 +1256,56 @@ final class MediaPickerSelectedListNode: ASDisplayNode, ASScrollViewDelegate, AS
                 groupRect.origin.x = insets.left + floorToScreenPixels((size.width - insets.left - insets.right - groupSize.width) / 2.0)
             }
             
+            // The text and the audio file of the album are in the message with the pictures. The text is 10 pt from the left edge, and
+            // so is the audio file; the text is 8 pt from the bottom when it is under the pictures, and 10 pt from the top when it is above
+            // them. The distance between the pictures and the text or the audio file is always 12 pt.
+            let blockRect = groupRect
+            let isAlbumGroup = groupIndex == groupLayouts.count - 1 && !self.isExternalPreview
+            let contentInset: CGFloat = 10.0
+            let photoSpacing: CGFloat = 12.0
+            let captionWidth = max(0.0, groupSize.width - contentInset)
+            var captionText: NSAttributedString?
+            var captionHeight: CGFloat = 0.0
+            if isAlbumGroup, let albumCaption = self.albumCaption, albumCaption.text.length != 0 {
+                let text = NSMutableAttributedString(attributedString: albumCaption.text)
+                let fullRange = NSRange(location: 0, length: text.length)
+                text.addAttribute(.foregroundColor, value: theme.chat.message.outgoing.primaryTextColor, range: fullRange)
+                text.enumerateAttribute(.font, in: fullRange, options: [], using: { value, range, _ in
+                    if value == nil {
+                        text.addAttribute(.font, value: Font.regular(17.0), range: range)
+                    }
+                })
+                captionText = text
+                captionHeight = ceil(text.boundingRect(with: CGSize(width: captionWidth, height: 10000.0), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height)
+            }
+            let captionIsAbove = captionText != nil && (self.albumCaption?.isAbove ?? false)
+            let hasAudio = isAlbumGroup && self.albumAudio != nil
+            let audioHeight: CGFloat = 44.0
+            
+            var topExtra: CGFloat = 0.0
+            var bottomExtra: CGFloat = 0.0
+            var captionOffsetBelow: CGFloat?
+            var audioOffsetBelow: CGFloat?
+            if captionIsAbove {
+                topExtra = contentInset + captionHeight + photoSpacing
+            }
+            var cursor: CGFloat = photoSpacing
+            if captionText != nil && !captionIsAbove {
+                captionOffsetBelow = cursor
+                cursor += captionHeight + 8.0
+            }
+            if hasAudio {
+                if captionOffsetBelow != nil {
+                    cursor += 8.0
+                }
+                audioOffsetBelow = cursor
+                cursor += audioHeight + 8.0
+            }
+            if captionOffsetBelow != nil || audioOffsetBelow != nil {
+                bottomExtra = cursor
+            }
+            groupRect.origin.y += topExtra
+            
             var itemTransition = transition
             
             if !self.isExternalPreview {
@@ -1142,7 +1323,8 @@ final class MediaPickerSelectedListNode: ASDisplayNode, ASScrollViewDelegate, AS
                     itemTransition = .immediate
                 }
                 
-                let groupBackgroundFrame = groupRect.insetBy(dx: -5.0, dy: -2.0).offsetBy(dx: 3.0, dy: 0.0)
+                var groupBackgroundFrame = blockRect.insetBy(dx: -5.0, dy: -2.0).offsetBy(dx: 3.0, dy: 0.0)
+                groupBackgroundFrame.size.height += topExtra + bottomExtra
                 itemTransition.updatePosition(node: groupBackgroundNode, position: groupBackgroundFrame.center)
                 itemTransition.updateBounds(node: groupBackgroundNode, bounds: CGRect(origin: CGPoint(), size: groupBackgroundFrame.size))
                 groupBackgroundNode.update(size: groupBackgroundNode.frame.size, theme: theme, wallpaper: wallpaper, graphics: graphics, wallpaperBackgroundNode: self.wallpaperBackgroundNode, transition: itemTransition)
@@ -1206,9 +1388,73 @@ final class MediaPickerSelectedListNode: ASDisplayNode, ASScrollViewDelegate, AS
                 })
             }
             
-            contentHeight += groupSize.height
+            if let captionText {
+                let label: UILabel
+                if let current = self.albumCaptionLabel {
+                    label = current
+                } else {
+                    label = UILabel()
+                    label.numberOfLines = 0
+                    self.albumCaptionLabel = label
+                    self.scrollNode.view.addSubview(label)
+                    label.alpha = 0.0
+                    ContainedViewLayoutTransition.animated(duration: 0.25, curve: .easeInOut).updateAlpha(layer: label.layer, alpha: 1.0)
+                }
+                label.attributedText = captionText
+                let labelY: CGFloat
+                if captionIsAbove {
+                    labelY = blockRect.minY + contentInset
+                } else {
+                    labelY = groupRect.maxY + (captionOffsetBelow ?? photoSpacing)
+                }
+                let labelFrame = CGRect(origin: CGPoint(x: groupRect.minX + contentInset, y: labelY), size: CGSize(width: captionWidth, height: captionHeight))
+                if label.frame.isEmpty {
+                    label.frame = labelFrame
+                } else {
+                    transition.updateFrame(view: label, frame: labelFrame)
+                }
+            }
+            
+            if let audioOffsetBelow, let albumAudio = self.albumAudio {
+                let rowView: MediaPickerAlbumAudioRowView
+                if let current = self.albumAudioRowView {
+                    rowView = current
+                } else {
+                    rowView = MediaPickerAlbumAudioRowView(frame: CGRect())
+                    rowView.onClose = { [weak self] in
+                        self?.albumAudioRemoved?()
+                    }
+                    self.albumAudioRowView = rowView
+                    self.scrollNode.view.addSubview(rowView)
+                    rowView.alpha = 0.0
+                    ContainedViewLayoutTransition.animated(duration: 0.25, curve: .easeInOut).updateAlpha(layer: rowView.layer, alpha: 1.0)
+                }
+                let rowFrame = CGRect(origin: CGPoint(x: groupRect.minX + contentInset, y: groupRect.maxY + audioOffsetBelow), size: CGSize(width: groupRect.width - contentInset, height: audioHeight))
+                if rowView.frame.isEmpty {
+                    rowView.frame = rowFrame
+                } else {
+                    transition.updateFrame(view: rowView, frame: rowFrame)
+                }
+                rowView.update(size: rowFrame.size, audio: albumAudio, theme: theme)
+            }
+            
+            contentHeight += topExtra + groupSize.height + bottomExtra
             contentWidth = max(contentWidth, groupSize.width)
             groupIndex += 1
+        }
+        
+        if self.albumCaption == nil || self.albumCaption?.text.length == 0, let label = self.albumCaptionLabel {
+            self.albumCaptionLabel = nil
+            ContainedViewLayoutTransition.animated(duration: 0.2, curve: .easeInOut).updateAlpha(layer: label.layer, alpha: 0.0, completion: { [weak label] _ in
+                label?.removeFromSuperview()
+            })
+        }
+        
+        if self.albumAudio == nil, let rowView = self.albumAudioRowView {
+            self.albumAudioRowView = nil
+            ContainedViewLayoutTransition.animated(duration: 0.2, curve: .easeInOut).updateAlpha(layer: rowView.layer, alpha: 0.0, completion: { [weak rowView] _ in
+                rowView?.removeFromSuperview()
+            })
         }
         
         if let dragNode = self.messageNodes?.last {

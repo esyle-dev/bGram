@@ -15,6 +15,8 @@ public enum BetaFeature: String, CaseIterable {
     case topicSwipe
     case giftArchive
     case makeOffer
+    case albumReply
+    case sharedMessages
 
     public var key: String {
         return "bgram.beta." + self.rawValue
@@ -46,6 +48,10 @@ public enum BetaFeature: String, CaseIterable {
             return isRussian ? "Архив подарков" : "Gift Archive"
         case .makeOffer:
             return isRussian ? "Предложить цену" : "Make an Offer"
+        case .albumReply:
+            return isRussian ? "Ответ на фото из альбома" : "Album Photo Reply"
+        case .sharedMessages:
+            return isRussian ? "Общие сообщения" : "Shared Messages"
         }
     }
 
@@ -99,6 +105,14 @@ public enum BetaFeature: String, CaseIterable {
             return isRussian
                 ? "Предложить свою цену за подарок на чужом профиле: сумма держится в эскроу до ответа владельца."
                 : "Offer your own price for a gift on someone's profile: the amount is held in escrow until the owner answers."
+        case .albumReply:
+            return isRussian
+                ? "Ответ на одно фото из альбома: в поле ответа видно миниатюру и «Фото 4 из 9», а в меню фото — переход к нему."
+                : "Reply to one photo of an album: the reply bar shows its thumbnail and \"Photo 4 of 9\", and the photo menu jumps to it."
+        case .sharedMessages:
+            return isRussian
+                ? "Сообщение, которое ведут несколько человек: у него общий редактор, история версий и подпись «совместно». Правки видны всем участникам."
+                : "A message several people keep: one shared editor, version history and a co-edited footer. Every editor sees the changes."
         }
     }
 }

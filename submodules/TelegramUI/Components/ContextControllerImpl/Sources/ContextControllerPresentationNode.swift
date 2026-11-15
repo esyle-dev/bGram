@@ -20,6 +20,8 @@ protocol ContextControllerPresentationNode: ASDisplayNode {
     func replaceItems(items: ContextController.Items, animated: Bool?)
     func pushItems(items: ContextController.Items)
     func popItems()
+    func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool)
+    func scrollContent(by delta: CGFloat)
     func wantsDisplayBelowKeyboard() -> Bool
     
     func update(
@@ -39,4 +41,12 @@ protocol ContextControllerPresentationNode: ASDisplayNode {
     func increaseHighlightedIndex()
     
     func addRelativeContentOffset(_ offset: CGPoint, transition: ContainedViewLayoutTransition)
+}
+
+extension ContextControllerPresentationNode {
+    func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool) {
+    }
+    
+    func scrollContent(by delta: CGFloat) {
+    }
 }

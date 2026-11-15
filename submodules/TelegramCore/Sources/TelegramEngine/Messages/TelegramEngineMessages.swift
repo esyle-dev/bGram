@@ -787,6 +787,62 @@ public extension TelegramEngine {
             |> ignoreValues
         }
         
+        /// Makes the message a shared message, or updates its settings, in the local record. The marker
+        /// that tells other clients is written into the message text by the caller.
+        public func makeMessageShared(messageId: MessageId, title: String, access: SharedMessageAttribute.Access, peerIds: [EnginePeer.Id], closeEditing: SharedMessageAttribute.CloseEditing, commentsEnabled: Bool, notifyChanges: Bool, link: SharedMessageAttribute.Link? = nil) -> Signal<Never, NoError> {
+            let accountPeerId = self.account.peerId
+            return self.account.postbox.transaction { transaction -> Void in
+                let now = Int32(CFAbsoluteTimeGetCurrent() + NSTimeIntervalSince1970)
+                var isNewlyShared = false
+                transaction.updateMessage(messageId, update: { currentMessage in
+                    let storeForwardInfo = currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init)
+                    var attributes = currentMessage.attributes.filter { !($0 is SharedMessageAttribute) }
+
+                    var activity = SharedMessageAttribute.Activity()
+                    var version: Int32 = 0
+                    var versionEditorIds: [EnginePeer.Id] = []
+                    if let previous = currentMessage.attributes.first(where: { $0 is SharedMessageAttribute }) as? SharedMessageAttribute {
+                        activity = previous.activity
+                        // New settings keep the content's version: they are not a change of the text.
+                        version = previous.version
+                        versionEditorIds = previous.versionEditorIds
+                        // Settings saved again reopen a message closed by hand.
+                        activity.isClosedManually = false
+                    } else {
+                        isNewlyShared = true
+                        activity.sharedAt = now
+                        activity.editorPeerIds = [currentMessage.author?.id ?? accountPeerId]
+                    }
+                    attributes.append(SharedMessageAttribute(title: title, access: access, peerIds: peerIds, closeEditing: closeEditing, commentsEnabled: commentsEnabled, notifyChanges: notifyChanges, version: version, versionEditorIds: versionEditorIds, activity: activity, link: link))
+
+                    return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: storeForwardInfo, authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
+                })
+                
+                if isNewlyShared {
+                    // A local service message under the bubble. Its text is stored as written, in English.
+                    let serviceText = "You allowed editing \u{00AB}\(title)\u{00BB}"
+                    let _ = transaction.addMessages([StoreMessage(peerId: messageId.peerId, namespace: Namespaces.Message.Local, customStableId: nil, globallyUniqueId: Int64.random(in: Int64.min ... Int64.max), groupingKey: nil, threadId: nil, timestamp: now, flags: [], tags: [], globalTags: [], localTags: [], forwardInfo: nil, authorId: accountPeerId, text: "", attributes: [], media: [TelegramMediaAction(action: .customText(text: serviceText, entities: [], additionalAttributes: nil))])], location: .UpperHistoryBlock)
+                }
+            }
+            |> ignoreValues
+        }
+
+        /// Changes the local activity record of a shared message; a message that is not shared is left alone.
+        public func updateSharedMessageActivity(messageId: MessageId, _ f: @escaping (SharedMessageAttribute.Activity) -> SharedMessageAttribute.Activity) -> Signal<Never, NoError> {
+            return self.account.postbox.transaction { transaction -> Void in
+                transaction.updateMessage(messageId, update: { currentMessage in
+                    guard let shared = currentMessage.attributes.first(where: { $0 is SharedMessageAttribute }) as? SharedMessageAttribute else {
+                        return .skip
+                    }
+                    let storeForwardInfo = currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init)
+                    var attributes = currentMessage.attributes.filter { !($0 is SharedMessageAttribute) }
+                    attributes.append(shared.withUpdatedActivity(f(shared.activity)))
+                    return .update(StoreMessage(id: currentMessage.id, customStableId: nil, globallyUniqueId: currentMessage.globallyUniqueId, groupingKey: currentMessage.groupingKey, threadId: currentMessage.threadId, timestamp: currentMessage.timestamp, flags: StoreMessageFlags(currentMessage.flags), tags: currentMessage.tags, globalTags: currentMessage.globalTags, localTags: currentMessage.localTags, forwardInfo: storeForwardInfo, authorId: currentMessage.author?.id, text: currentMessage.text, attributes: attributes, media: currentMessage.media))
+                })
+            }
+            |> ignoreValues
+        }
+
         public func storeLocallyDerivedData(messageId: MessageId, data: [String: CodableEntry]) -> Signal<Never, NoError> {
             return self.account.postbox.transaction { transaction -> Void in
                 transaction.updateMessage(messageId, update: { currentMessage in

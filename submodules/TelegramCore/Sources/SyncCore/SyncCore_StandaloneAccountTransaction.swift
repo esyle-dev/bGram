@@ -187,6 +187,16 @@ public let telegramPostboxSeedConfiguration: SeedConfiguration = {
             if let previousEphemeralReplacement, !updated.contains(where: { $0 is EphemeralReplacementMessageAttribute }) {
                 updated.append(previousEphemeralReplacement)
             }
+            if let previousShared = previous.first(where: { $0 is SharedMessageAttribute }) as? SharedMessageAttribute {
+                if let index = updated.firstIndex(where: { $0 is SharedMessageAttribute }), let incoming = updated[index] as? SharedMessageAttribute {
+                    // The marker re-parsed from the server carries no activity but the closed flag; keep the local one.
+                    var activity = previousShared.activity
+                    activity.isClosedManually = incoming.activity.isClosedManually
+                    updated[index] = incoming.withUpdatedActivity(activity)
+                } else {
+                    updated.append(previousShared)
+                }
+            }
         },
         decodeMessageThreadInfo: { entry in
             guard let data = entry.get(MessageHistoryThreadData.self) else {

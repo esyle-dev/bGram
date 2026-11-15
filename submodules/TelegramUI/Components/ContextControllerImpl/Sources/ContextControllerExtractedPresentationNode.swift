@@ -690,6 +690,23 @@ final class ContextControllerExtractedPresentationNode: ASDisplayNode, ContextCo
         self.actionsStackNode.push(item: makeContextControllerActionsStackItem(items: items).first!, currentScrollingState: currentScrollingState, positionLock: positionLock, animated: true)
     }
     
+    private var contentFitsScreen = true
+    private var forcesMenuSelection = false
+    
+    func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool) {
+        self.scroller.isScrollEnabled = !isDriven
+        self.forcesMenuSelection = menuSelection
+        self.actionsStackNode.updatePanSelection(isEnabled: self.contentFitsScreen || menuSelection)
+    }
+    
+    func scrollContent(by delta: CGFloat) {
+        let maxOffset = max(0.0, self.scroller.contentSize.height - self.scroller.bounds.height)
+        let offset = min(max(self.scroller.contentOffset.y + delta, 0.0), maxOffset)
+        if offset != self.scroller.contentOffset.y {
+            self.scroller.contentOffset = CGPoint(x: 0.0, y: offset)
+        }
+    }
+    
     func popItems() {
         self.actionsStackNode.pop()
         if self.actionsStackNode.topPositionLock == nil {
@@ -1443,7 +1460,8 @@ final class ContextControllerExtractedPresentationNode: ASDisplayNode, ContextCo
                 }
             }
             
-            self.actionsStackNode.updatePanSelection(isEnabled: contentSize.height <= layout.size.height)
+            self.contentFitsScreen = contentSize.height <= layout.size.height
+            self.actionsStackNode.updatePanSelection(isEnabled: self.contentFitsScreen || self.forcesMenuSelection)
             
             defaultScrollY = contentSize.height - layout.size.height
             if defaultScrollY < 0.0 {

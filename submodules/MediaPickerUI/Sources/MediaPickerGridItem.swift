@@ -273,6 +273,20 @@ final class MediaPickerGridItemNode: GridItemNode {
                 }
             }
             self.checkNode?.setSelected(selected, animated: animated)
+            // When as many pictures are chosen as the album has free places, the others cannot be chosen: they are dimmed.
+            let isLimited: Bool
+            if let capacity = interaction.albumAddCapacity {
+                isLimited = !selected && Int(selectionState.count()) >= capacity
+            } else {
+                isLimited = false
+            }
+            let dimmedAlpha: CGFloat = isLimited ? 0.35 : 1.0
+            if animated {
+                ContainedViewLayoutTransition.animated(duration: 0.2, curve: .easeInOut).updateAlpha(node: self, alpha: dimmedAlpha)
+            } else {
+                self.alpha = dimmedAlpha
+            }
+            self.isUserInteractionEnabled = !isLimited
             self.selectionPromise.set(SelectionState(selected: selected, index: selectionIndex, count: selectionState.selectedItems().count))
         }
     }

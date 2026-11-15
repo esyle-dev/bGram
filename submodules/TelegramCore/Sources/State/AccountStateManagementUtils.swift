@@ -4644,6 +4644,7 @@ func replayFinalState(
                 }
             case let .EditMessage(id, message):
                 var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
+                addSharedMessageVersionNoticeIfNeeded(transaction: transaction, accountPeerId: accountPeerId, id: id, updated: message)
                 transaction.updateMessage(id, update: { previousMessage in
                     var updatedFlags = message.flags
                     var updatedLocalTags = message.localTags

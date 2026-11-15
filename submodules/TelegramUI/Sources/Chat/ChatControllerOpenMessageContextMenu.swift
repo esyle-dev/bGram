@@ -9,6 +9,7 @@ import ContextUI
 import AccountContext
 import ChatMessageItemView
 import ChatMessageItemCommon
+import ChatMessageBubbleItemNode
 import ReactionSelectionNode
 import EntityKeyboard
 import TextNodeWithEntities
@@ -20,7 +21,7 @@ import PresentationDataUtils
 import ChatPresentationInterfaceState
 
 extension ChatControllerImpl {
-    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?) -> Void {
+    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?, albumPhotoCard: AlbumPhotoSelection? = nil, albumPhotoCardPresented: ((ContextController) -> Void)? = nil) -> Void {
         if self.presentationInterfaceState.interfaceState.selectionState != nil {
             return
         }
@@ -48,12 +49,42 @@ extension ChatControllerImpl {
 
             let canBypassReactionRestrictions = canBypassRestrictions(chatPresentationInterfaceState: self.presentationInterfaceState)
 
+            // A press on one photo of an album gets the menu of that photo alone; any other press gets the menu of the message.
+            // The reactions of an album are the ones of its first message, which is the one the album shows, whichever photo is open.
+            let reactionMessage: EngineRawMessage = albumPhotoCard != nil || isAlbumPhotoMessage(topMessage, in: updatedMessages) ? (messages.first ?? topMessage) : topMessage
+            let contextMenuSignal: Signal<ContextController.Items, NoError>
+            let albumPhotoSelection: AlbumPhotoSelection?
+            if let albumPhotoCard {
+                albumPhotoSelection = albumPhotoCard
+            } else if !selectAll, isAlbumPhotoMessage(topMessage, in: updatedMessages) {
+                albumPhotoSelection = AlbumPhotoSelection(photoMessages: messages.filter { $0.effectiveMedia.contains(where: { $0 is TelegramMediaImage }) }.sorted(by: { $0.index < $1.index }), allMessages: messages, message: topMessage)
+            } else {
+                albumPhotoSelection = nil
+            }
+            albumPhotoSelection?.bubbleNode = node as? ChatMessageBubbleItemNode
+            let albumReactionsBox = AlbumReactionsBox()
+            if let albumPhotoSelection {
+                contextMenuSignal = albumPhotoContextMenuItems(chatPresentationInterfaceState: self.presentationInterfaceState, context: self.context, message: topMessage, controllerInteraction: self.controllerInteraction, interfaceInteraction: self.interfaceInteraction, photoIndex: albumPhotoSelection.index, photoCount: albumPhotoSelection.photoMessages.count, albumMessages: albumPhotoSelection.allMessages, showsAlbumActions: albumPhotoCard == nil, albumReactions: albumReactionsBox, albumActionsToggled: { [weak albumPhotoSelection] open in albumPhotoSelection?.setAlbumActionsOpen(open) }, editPhoto: { [weak self] id in self?.editAlbumPhoto(messageId: id) }, editAlbum: { [weak self] in self?.openAlbumEditor(messages: albumPhotoSelection.allMessages) })
+            } else {
+                var signal = contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState: self.presentationInterfaceState, context: self.context, messages: updatedMessages, controllerInteraction: self.controllerInteraction, selectAll: selectAll, interfaceInteraction: self.interfaceInteraction, messageNode: node as? ChatMessageItemView)
+                // The menu of a whole album: its "Edit" opens the editor of the photos.
+                if messages.count > 1, messages.contains(where: { $0.effectiveMedia.contains(where: { $0 is TelegramMediaImage }) }) {
+                    let strings = self.presentationData.strings
+                    signal = signal |> map { [weak self] items -> ContextController.Items in
+                        return albumPhotoEditItemRenamed(items, strings: strings, openEditor: {
+                            self?.openAlbumEditor(messages: messages)
+                        })
+                    }
+                }
+                contextMenuSignal = signal
+            }
+
             let _ = combineLatest(queue: .mainQueue(),
                 self.context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: self.context.account.peerId)),
-                contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState: self.presentationInterfaceState, context: self.context, messages: updatedMessages, controllerInteraction: self.controllerInteraction, selectAll: selectAll, interfaceInteraction: self.interfaceInteraction, messageNode: node as? ChatMessageItemView),
-                peerMessageAllowedReactions(context: self.context, message: topMessage, ignoreDefault: canBypassReactionRestrictions),
-                peerMessageSelectedReactions(context: self.context, message: EngineMessage(topMessage)),
-                topMessageReactions(context: self.context, message: topMessage, subPeerId: self.chatLocation.threadId.flatMap(EnginePeer.Id.init), ignoreDefault: canBypassReactionRestrictions),
+                contextMenuSignal,
+                peerMessageAllowedReactions(context: self.context, message: reactionMessage, ignoreDefault: canBypassReactionRestrictions),
+                peerMessageSelectedReactions(context: self.context, message: EngineMessage(reactionMessage)),
+                topMessageReactions(context: self.context, message: reactionMessage, subPeerId: self.chatLocation.threadId.flatMap(EnginePeer.Id.init), ignoreDefault: canBypassReactionRestrictions),
                 ApplicationSpecificNotice.getChatTextSelectionTips(accountManager: self.context.sharedContext.accountManager)
             ).startStandalone(next: { [weak self] peer, actions, allowedReactionsAndStars, selectedReactions, topReactions, chatTextSelectionTips in
                 guard let self else {
@@ -128,7 +159,20 @@ extension ChatControllerImpl {
                 actions.context = self.context
                 actions.animationCache = self.controllerInteraction?.presentationContext.animationCache
                                                          
-                if canAddMessageReactions(message: EngineMessage(topMessage)), let allowedReactions = allowedReactions, !topReactions.isEmpty {
+                // The reactions belong to the album as a whole: the menu of one photo ("Photo 6 of 10"), on the album or on the card, has
+                // none, so that moving over the photos does not change what is above the content. The menu of the whole album, which
+                // opens from "Whole Album", gets them through the box.
+                let applyReactions: (inout ContextController.Items) -> Void = { [weak self] actions in
+                guard let self else {
+                    return
+                }
+                guard canAddMessageReactions(message: EngineMessage(reactionMessage)), let allowedReactions = allowedReactions, !topReactions.isEmpty else {
+                    return
+                }
+                do {
+                    // The menu of the whole album is another set of items, so it needs these as well to be able to show the reactions.
+                    actions.context = self.context
+                    actions.animationCache = self.controllerInteraction?.presentationContext.animationCache
                     actions.reactionItems = topReactions.map { ReactionContextItem.reaction(item: $0, icon: .none) }
                     actions.selectedReactionItems = selectedReactions.reactions
                     if message.areReactionsTags(accountPeerId: self.context.account.peerId) {
@@ -212,6 +256,11 @@ extension ChatControllerImpl {
                         }
                     }
                 }
+                }
+                if albumPhotoSelection == nil {
+                    applyReactions(&actions)
+                }
+                albumReactionsBox.apply = applyReactions
                 
                 self.chatDisplayNode.messageTransitionNode.dismissMessageReactionContexts()
                 
@@ -313,10 +362,20 @@ extension ChatControllerImpl {
                 }
                 
                 let source: ContextContentSource
+                var albumPhotoSource: AlbumPhotoContextExtractedContentSource?
                 if let location = location {
                     source = .location(ChatMessageContextLocationContentSource(controller: self, location: node.view.convert(node.bounds, to: nil).origin.offsetBy(dx: location.x, dy: location.y)))
                 } else {
-                    source = .extracted(ChatMessageContextExtractedContentSource(chatController: self, chatNode: self.chatDisplayNode, engine: self.context.engine, message: message, selectAll: selectAll, keepDefaultContentTouches: keepDefaultContentTouches))
+                    if albumPhotoCard != nil, let albumPhotoSelection, let bubbleNode = node as? ChatMessageBubbleItemNode {
+                        // One photo of an album on a card of its own, so that the reactions and the menu are about it alone.
+                        let photoSource = AlbumPhotoContextExtractedContentSource(context: self.context, chatNode: self.chatDisplayNode, selection: albumPhotoSelection, sourceView: { [weak bubbleNode] in
+                            return bubbleNode?.albumPhotoSource(stableId: albumPhotoSelection.message.stableId)
+                        })
+                        albumPhotoSource = photoSource
+                        source = .extracted(photoSource)
+                    } else {
+                        source = .extracted(ChatMessageContextExtractedContentSource(chatController: self, chatNode: self.chatDisplayNode, engine: self.context.engine, message: message, selectAll: selectAll, keepDefaultContentTouches: keepDefaultContentTouches))
+                    }
                 }
                 
                 self.canReadHistory.set(false)
@@ -335,6 +394,7 @@ extension ChatControllerImpl {
                     }
                 }
                 
+                let baseActions = actions
                 let isSecret = self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat
                 let controller = makeContextController(presentationData: self.presentationData, source: source, items: actionsSignal, recognizer: recognizer, gesture: gesture, disableScreenshots: isSecret, hideReactionPanelTail: hideReactionPanelTail)
                 controller.dismissed = { [weak self] in
@@ -638,6 +698,16 @@ extension ChatControllerImpl {
                     return true
                 })
                 self.window?.presentInGlobalOverlay(controller)
+                
+                // The finger that opened the menu of a photo of an album can go on to the other photos of the album.
+                if let albumPhotoSelection {
+                    if let albumPhotoSource {
+                        self.installAlbumPhotoSwiping(gesture: gesture, recognizer: recognizer, controller: controller, source: albumPhotoSource, selection: albumPhotoSelection, baseItems: baseActions)
+                    } else if let bubbleNode = node as? ChatMessageBubbleItemNode {
+                        self.installAlbumPhotoTracking(gesture: gesture, recognizer: recognizer, controller: controller, bubbleNode: bubbleNode, selection: albumPhotoSelection, baseItems: baseActions)
+                    }
+                }
+                albumPhotoCardPresented?(controller)
             })
         }
     }

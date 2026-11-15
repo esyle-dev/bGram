@@ -280,6 +280,7 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
                                         updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: peers)
 
                                         if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForumOrMonoForum), case let .Id(id) = message.id {
+                                            addSharedMessageVersionNoticeIfNeeded(transaction: transaction, accountPeerId: accountPeerId, id: id, updated: message)
                                             transaction.updateMessage(id, update: { previousMessage in
                                                 var updatedFlags = message.flags
                                                 var updatedLocalTags = message.localTags
@@ -306,6 +307,7 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
                                         updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: peers)
 
                                         if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForumOrMonoForum), case let .Id(id) = message.id {
+                                            addSharedMessageVersionNoticeIfNeeded(transaction: transaction, accountPeerId: accountPeerId, id: id, updated: message)
                                             transaction.updateMessage(id, update: { previousMessage in
                                                 var updatedFlags = message.flags
                                                 var updatedLocalTags = message.localTags
@@ -332,6 +334,7 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
                                         updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: peers)
 
                                         if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForumOrMonoForum), case let .Id(id) = message.id {
+                                            addSharedMessageVersionNoticeIfNeeded(transaction: transaction, accountPeerId: accountPeerId, id: id, updated: message)
                                             transaction.updateMessage(id, update: { previousMessage in
                                                 var updatedFlags = message.flags
                                                 var updatedLocalTags = message.localTags
@@ -358,6 +361,7 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
                                         updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: peers)
                                         
                                         if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForumOrMonoForum), case let .Id(id) = message.id {
+                                            addSharedMessageVersionNoticeIfNeeded(transaction: transaction, accountPeerId: accountPeerId, id: id, updated: message)
                                             transaction.updateMessage(id, update: { previousMessage in
                                                 var updatedFlags = message.flags
                                                 var updatedLocalTags = message.localTags

@@ -768,6 +768,15 @@ final class ChatPinnedMessageTitlePanelNode: ChatTitleAccessoryPanelNode {
             var text = message.text
             var messageEntities = message.textEntitiesAttribute?.entities ?? []
             
+            // A shared message is pinned under its title.
+            for attribute in message.attributes {
+                if let attribute = attribute as? SharedMessageAttribute, !attribute.title.isEmpty {
+                    text = attribute.title
+                    messageEntities = []
+                    break
+                }
+            }
+            
             if let translateToLanguage = translateToLanguage, !text.isEmpty {
                 for attribute in message.attributes {
                     if let attribute = attribute as? TranslationMessageAttribute, !attribute.text.isEmpty, attribute.toLang == translateToLanguage {

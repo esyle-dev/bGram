@@ -1363,7 +1363,7 @@ static TGMediaLivePhotoMode TGMediaPickerGalleryResolvedLivePhotoMode(NSNumber *
     _portraitToolbarView.sendPaidMessageStars = (_editingContext.sendPaidMessageStars * finalCount);
     [_portraitToolbarView setNeedsLayout];
     
-    if (counterVisible)
+    if (counterVisible && !self.hidesSelectionCounter)
     {
         bool animateCount = animated && !(counterVisible && _photoCounterButton.internalHidden);
         if (!animateCount && !_photoCounterButton.selected && !_photoCounterButton.internalHidden)

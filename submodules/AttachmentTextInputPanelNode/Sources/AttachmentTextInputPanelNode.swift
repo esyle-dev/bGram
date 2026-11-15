@@ -25,6 +25,8 @@ import MultiAnimationRenderer
 import TextNodeWithEntities
 import ChatInputTextNode
 import ChatEntityKeyboardInputNode
+import GlassBackgroundComponent
+import LottieComponent
 
 private let counterFont = Font.with(size: 14.0, design: .regular, traits: [.monospacedNumbers])
 private let minInputFontSize: CGFloat = 5.0
@@ -255,6 +257,7 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
     public var inputPanelBottomSpacing: CGFloat
     private let isCaption: Bool
     private let isAttachment: Bool
+    private let isAlbumEditing: Bool
     private let customEmojiAvailable: Bool
 
     private let presentController: (ViewController) -> Void
@@ -278,6 +281,19 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
     private let counterTextNode: ImmediateTextNode
 
     private var aiButton: (button: HighlightTrackingButton, icon: UIImageView)?
+    
+    // The window in which the photos of an album are edited has the attachment button, as the input of a chat has, at the left of the
+    // field, and the button that moves the caption above or under the media in the place of the send button, at the right end of the field.
+    private var albumAttachButton: (background: GlassBackgroundView, button: HighlightTrackingButton, icon: UIImageView)?
+    /// The glass of the attachment button of the window that edits an album, like the one the input of the chat has, is drawn in a
+    /// container of glass: native glass is drawn properly only inside one.
+    private let albumAttachContainer = GlassBackgroundContainerView()
+    private var albumAttachShown = false
+    private var albumCaptionButton: (button: HighlightTrackingButton, icon: ComponentHostView<Empty>)?
+    private var albumCaptionButtonIconIsAbove: Bool?
+    public var albumAttachPressed: ((UIView) -> Void)?
+    /// Whether the attachment button of the window that edits an album is shown: the field gives its left side to it.
+    public var isAlbumAttachVisible: Bool = false
     private var heightDependentAiButtonAlpha: CGFloat = 0.0
     public var isAIEnabled: Bool = false
 
@@ -409,7 +425,10 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
         return self.textInputNode?.attributedText ?? NSAttributedString()
     }
 
-    private let textInputViewInternalInsets = UIEdgeInsets(top: 1.0, left: 13.0, bottom: 1.0, right: 13.0)
+    private var textInputViewInternalInsets: UIEdgeInsets {
+        // Room for the caption position button, which is inside the field, after the button of the keyboards.
+        return UIEdgeInsets(top: 1.0, left: 13.0, bottom: 1.0, right: self.isAlbumEditing ? 13.0 + 36.0 : 13.0)
+    }
 
     private var spoilersRevealed = false
 
@@ -419,13 +438,14 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
 
     private var maxCaptionLength: Int32?
 
-    public init(context: AccountContext, presentationInterfaceState: ChatPresentationInterfaceState, glass: Bool = false, isCaption: Bool = false, isAttachment: Bool = false, isScheduledMessages: Bool = false, customEmojiAvailable: Bool, presentController: @escaping (ViewController) -> Void, presentInGlobalOverlay: @escaping (ViewController) -> Void, getNavigationController: @escaping () -> NavigationController?, inputPanelBottomSpacing: CGFloat? = nil) {
+    public init(context: AccountContext, presentationInterfaceState: ChatPresentationInterfaceState, glass: Bool = false, isCaption: Bool = false, isAttachment: Bool = false, isAlbumEditing: Bool = false, isScheduledMessages: Bool = false, customEmojiAvailable: Bool, presentController: @escaping (ViewController) -> Void, presentInGlobalOverlay: @escaping (ViewController) -> Void, getNavigationController: @escaping () -> NavigationController?, inputPanelBottomSpacing: CGFloat? = nil) {
         self.context = context
         self.presentationInterfaceState = presentationInterfaceState
         self.glass = glass
         self.inputPanelBottomSpacing = inputPanelBottomSpacing ?? (glass ? 11.0 : 0.0)
         self.isCaption = isCaption
         self.isAttachment = isAttachment
+        self.isAlbumEditing = isAlbumEditing
         self.customEmojiAvailable = customEmojiAvailable
         self.presentController = presentController
         self.presentInGlobalOverlay = presentInGlobalOverlay
@@ -479,6 +499,11 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
             self.actionButtons.sendButtonLongPressEnabled = false
         }
 
+        if isAlbumEditing {
+            // There is nothing to send: the window closes with its own button.
+            self.actionButtons.isHidden = true
+            self.actionButtons.isUserInteractionEnabled = false
+        }
         self.actionButtons.sendButton.addTarget(self, action: #selector(self.sendButtonPressed), forControlEvents: .touchUpInside)
         self.actionButtons.sendButton.alpha = 1.0
         self.actionButtons.updateAccessibility()
@@ -830,6 +855,14 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
             insets.top = 0.0
             insets.bottom = 0.0
             insets.right += 3.0
+            if self.isAlbumEditing {
+                // The attachment button at the left (40 pt and 6 pt of space), when it is shown; nothing at the right, where the send
+                // button was.
+                if self.isAlbumAttachVisible {
+                    insets.left += 46.0
+                }
+                insets.right = 0.0
+            }
         } else if case .regular = metrics.widthClass, case .regular = metrics.heightClass {
             insets.top += 1.0
             insets.bottom += 1.0
@@ -860,6 +893,20 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
             let aiButtonPoint = self.view.convert(point, to: aiButton.button)
             if aiButton.button.bounds.contains(aiButtonPoint) {
                 return aiButton.button
+            }
+        }
+        // The buttons of the window that edits an album. The one in the field is in a view that does not take touches, like the
+        // button of the AI above, so it is found here.
+        if let captionButton = self.albumCaptionButton {
+            let captionButtonPoint = self.view.convert(point, to: captionButton.button)
+            if captionButton.button.bounds.contains(captionButtonPoint) {
+                return captionButton.button
+            }
+        }
+        if let attachButton = self.albumAttachButton, self.isAlbumAttachVisible {
+            let attachButtonPoint = self.view.convert(point, to: attachButton.button)
+            if attachButton.button.bounds.contains(attachButtonPoint) {
+                return attachButton.button
             }
         }
         if !self.inputModeView.isHidden, let result = self.inputModeView.hitTest(self.view.convert(point, to: self.inputModeView), with: event) {
@@ -1411,6 +1458,10 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
             self.heightDependentAiButtonAlpha = 0.0
         }
 
+        if self.isAlbumEditing, let presentationInterfaceState = self.presentationInterfaceState {
+            self.updateAlbumEditingButtons(interfaceState: presentationInterfaceState, leftInset: leftInset, panelHeight: panelHeight, panelOriginY: panelOriginY, textInputBackgroundWidth: baseWidth - textFieldInsets.left - textFieldInsets.right + composeButtonsOffset - textBackgroundInset, textInputHeight: textInputHeight, transition: transition)
+        }
+
         var textInputViewRealInsets = UIEdgeInsets()
         if let presentationInterfaceState = self.presentationInterfaceState {
             textInputViewRealInsets = calculateTextFieldRealInsets(presentationInterfaceState, glass: self.glass)
@@ -1444,6 +1495,9 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
             var inputNodeOffset: CGPoint = CGPoint(x: -1.0, y: -1.0)
             if self.glass {
                 inputNodeOffset = CGPoint(x: -6.0, y: -4.0)
+            }
+            if self.isAlbumEditing {
+                inputNodeOffset.x -= 36.0
             }
             transition.updateFrame(view: self.inputModeView, frame: CGRect(origin: CGPoint(x: textInputBackgroundFrame.maxX - inputNodeSize.width + inputNodeOffset.x, y: panelOriginY + textInputBackgroundFrame.maxY - inputNodeSize.height + inputNodeOffset.y), size: inputNodeSize))
         }
@@ -2336,6 +2390,148 @@ public class AttachmentTextInputPanelNode: ASDisplayNode, TGCaptionPanelView, AS
     }
 
     public func chatInputTextNodeBackspaceWhileEmpty() {
+    }
+
+    private func updateAlbumEditingButtons(interfaceState: ChatPresentationInterfaceState, leftInset: CGFloat, panelHeight: CGFloat, panelOriginY: CGFloat, textInputBackgroundWidth: CGFloat, textInputHeight: CGFloat, transition: ContainedViewLayoutTransition) {
+        let buttonSize = CGSize(width: 40.0, height: 40.0)
+        
+        let attachButton: (background: GlassBackgroundView, button: HighlightTrackingButton, icon: UIImageView)
+        if let current = self.albumAttachButton {
+            attachButton = current
+        } else {
+            let background = GlassBackgroundView(frame: CGRect())
+            let button = HighlightTrackingButton()
+            button.accessibilityLabel = interfaceState.strings.VoiceOver_AttachMedia
+            button.accessibilityTraits = [.button]
+            button.addTarget(self, action: #selector(self.albumAttachButtonPressed), for: .touchUpInside)
+            let icon = UIImageView()
+            icon.isUserInteractionEnabled = false
+            icon.contentMode = .center
+            icon.alpha = 0.0
+            button.highligthedChanged = { [weak icon] highlighted in
+                guard let icon else {
+                    return
+                }
+                if highlighted {
+                    icon.layer.removeAnimation(forKey: "opacity")
+                    icon.alpha = 0.4
+                } else {
+                    icon.alpha = 1.0
+                    icon.layer.animateAlpha(from: 0.4, to: 1.0, duration: 0.2)
+                }
+            }
+            background.contentView.addSubview(button)
+            background.contentView.addSubview(icon)
+            if self.albumAttachContainer.superview == nil {
+                // It takes no touches itself: the button is found by `hitTest` of the panel.
+                self.albumAttachContainer.isUserInteractionEnabled = false
+                self.view.addSubview(self.albumAttachContainer)
+            }
+            self.albumAttachContainer.contentView.addSubview(background)
+            attachButton = (background, button, icon)
+            self.albumAttachButton = attachButton
+        }
+        attachButton.icon.image = PresentationResourcesChat.chatInputPanelAttachmentButtonImage(interfaceState.theme)
+        attachButton.icon.tintColor = interfaceState.theme.chat.inputPanel.panelControlColor
+        let attachButtonFrame = CGRect(origin: CGPoint(x: leftInset + 8.0, y: panelOriginY + panelHeight - buttonSize.height), size: buttonSize)
+        // The glass itself comes and goes with `isVisible` (that is how native glass is shown and hidden; its alpha is not touched).
+        attachButton.background.update(size: buttonSize, cornerRadius: buttonSize.height * 0.5, isDark: interfaceState.theme.overallDarkAppearance, tintColor: .init(kind: .panel), isInteractive: true, isVisible: self.isAlbumAttachVisible, transition: ComponentTransition(transition))
+        // The button comes out from under the field (from where the field is, small and clear) when a place is free, and goes back
+        // under it when there is none.
+        let hiddenOffset: CGFloat = 46.0
+        let hiddenScale: CGFloat = 0.4
+        // The size is set once, and the place is the position of the layer: the view is scaled while it goes in and out, and its frame
+        // means nothing then.
+        attachButton.background.bounds = CGRect(origin: CGPoint(), size: buttonSize)
+        let shownPosition = attachButtonFrame.center
+        let hiddenPosition = attachButtonFrame.offsetBy(dx: hiddenOffset, dy: 0.0).center
+        let containerFrame = CGRect(origin: CGPoint(), size: CGSize(width: self.validLayout?.width ?? 0.0, height: panelOriginY + panelHeight))
+        transition.updateFrame(view: self.albumAttachContainer, frame: containerFrame)
+        self.albumAttachContainer.update(size: containerFrame.size, isDark: interfaceState.theme.overallDarkAppearance, transition: ComponentTransition(transition))
+        if self.isAlbumAttachVisible {
+            if !self.albumAttachShown {
+                self.albumAttachShown = true
+                attachButton.background.layer.removeAllAnimations()
+                attachButton.icon.alpha = 0.0
+                attachButton.background.transform = CGAffineTransform(scaleX: hiddenScale, y: hiddenScale)
+                attachButton.background.layer.position = hiddenPosition
+            }
+            transition.updatePosition(layer: attachButton.background.layer, position: shownPosition)
+            transition.updateAlpha(layer: attachButton.icon.layer, alpha: 1.0)
+            transition.updateTransformScale(layer: attachButton.background.layer, scale: 1.0)
+        } else if self.albumAttachShown {
+            self.albumAttachShown = false
+            transition.updatePosition(layer: attachButton.background.layer, position: hiddenPosition)
+            transition.updateTransformScale(layer: attachButton.background.layer, scale: hiddenScale)
+            transition.updateAlpha(layer: attachButton.icon.layer, alpha: 0.0)
+        }
+        attachButton.button.frame = CGRect(origin: CGPoint(), size: buttonSize)
+        attachButton.icon.frame = CGRect(origin: CGPoint(), size: buttonSize)
+        
+        let captionButton: (button: HighlightTrackingButton, icon: ComponentHostView<Empty>)
+        if let current = self.albumCaptionButton {
+            captionButton = current
+        } else {
+            captionButton = (HighlightTrackingButton(), ComponentHostView<Empty>())
+            captionButton.button.accessibilityTraits = [.button]
+            captionButton.button.addTarget(self, action: #selector(self.albumCaptionButtonPressed), for: .touchUpInside)
+            captionButton.icon.isUserInteractionEnabled = false
+            captionButton.button.highligthedChanged = { [weak self] highlighted in
+                guard let self, let captionButton = self.albumCaptionButton else {
+                    return
+                }
+                if highlighted {
+                    captionButton.icon.alpha = 0.6
+                } else {
+                    ContainedViewLayoutTransition.animated(duration: 0.25, curve: .easeInOut).updateAlpha(layer: captionButton.icon.layer, alpha: 1.0)
+                }
+            }
+            self.textInputBackgroundNode.view.addSubview(captionButton.icon)
+            self.textInputBackgroundNode.view.addSubview(captionButton.button)
+            self.albumCaptionButton = captionButton
+        }
+        self.updateAlbumCaptionButtonIcon(interfaceState: interfaceState)
+        let iconSize = CGSize(width: 24.0, height: 24.0)
+        let captionButtonFrame = CGRect(origin: CGPoint(x: textInputBackgroundWidth - buttonSize.width - 2.0, y: textInputHeight - buttonSize.height), size: buttonSize)
+        transition.updateFrame(view: captionButton.button, frame: captionButtonFrame)
+        transition.updateFrame(view: captionButton.icon, frame: CGRect(origin: CGPoint(x: captionButtonFrame.minX + floor((captionButtonFrame.width - iconSize.width) * 0.5), y: captionButtonFrame.minY + floor((captionButtonFrame.height - iconSize.height) * 0.5)), size: iconSize))
+    }
+    
+    /// The icon of "Move Caption Up" ("Move Caption Down" when the caption is above the media) of the menu of the send button: the same
+    /// animation, at its end.
+    private func updateAlbumCaptionButtonIcon(interfaceState: ChatPresentationInterfaceState) {
+        guard let captionButton = self.albumCaptionButton else {
+            return
+        }
+        self.albumCaptionButtonIconIsAbove = self.currentIsCaptionAbove
+        captionButton.button.accessibilityLabel = self.currentIsCaptionAbove ? interfaceState.strings.Chat_SendMessageMenu_MoveCaptionDown : interfaceState.strings.Chat_SendMessageMenu_MoveCaptionUp
+        let _ = captionButton.icon.update(
+            transition: .immediate,
+            component: AnyComponent(LottieComponent(
+                content: LottieComponent.AppBundleContent(name: self.currentIsCaptionAbove ? "message_preview_sort_below" : "message_preview_sort_above"),
+                color: interfaceState.theme.chat.inputPanel.inputControlColor,
+                startingPosition: .end,
+                loop: false,
+                lottieSettings: self.context.lottieRenderingSettings
+            )),
+            environment: {},
+            containerSize: CGSize(width: 24.0, height: 24.0)
+        )
+    }
+    
+    @objc private func albumAttachButtonPressed() {
+        if let attachButton = self.albumAttachButton {
+            self.albumAttachPressed?(attachButton.background)
+        }
+    }
+    
+    @objc private func albumCaptionButtonPressed() {
+        self.currentIsCaptionAbove = !self.currentIsCaptionAbove
+        self.captionIsAboveUpdated?(self.currentIsCaptionAbove)
+        self.albumCaptionButtonIconIsAbove = self.currentIsCaptionAbove
+        if let interfaceState = self.presentationInterfaceState {
+            self.updateAlbumCaptionButtonIcon(interfaceState: interfaceState)
+        }
     }
 
     @objc private func aiButtonPressed() {

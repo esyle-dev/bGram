@@ -1213,6 +1213,29 @@ final class ContextControllerNode: ViewControllerTracingNode, ASScrollViewDelega
         }
     }
     
+    func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool) {
+        self.sourceContainer?.setContentScrollingDriven(isDriven, menuSelection: menuSelection)
+    }
+    
+    func scrollContent(by delta: CGFloat) {
+        self.sourceContainer?.scrollContent(by: delta)
+    }
+    
+    func highlightMenu(atWindowPoint point: CGPoint?) {
+        guard let sourceContainer = self.sourceContainer else {
+            return
+        }
+        if let point {
+            sourceContainer.highlightGestureMoved(location: sourceContainer.view.convert(point, from: nil), hover: false)
+        } else {
+            sourceContainer.highlightGestureMoved(location: CGPoint(x: -1.0, y: -1.0), hover: false)
+        }
+    }
+    
+    func finishMenuHighlight(performAction: Bool) {
+        self.sourceContainer?.highlightGestureFinished(performAction: performAction)
+    }
+    
     func updateTheme(presentationData: PresentationData) {
         self.presentationData = presentationData
         
@@ -2081,6 +2104,34 @@ public final class ContextControllerImpl: ViewController, ContextController, Sta
             return
         }
         self.controllerNode.popItems()
+    }
+    
+    public func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool) {
+        if !self.isNodeLoaded {
+            return
+        }
+        self.controllerNode.setContentScrollingDriven(isDriven, menuSelection: menuSelection)
+    }
+    
+    public func scrollContent(by delta: CGFloat) {
+        if !self.isNodeLoaded {
+            return
+        }
+        self.controllerNode.scrollContent(by: delta)
+    }
+    
+    public func highlightMenu(atWindowPoint point: CGPoint?) {
+        if !self.isNodeLoaded {
+            return
+        }
+        self.controllerNode.highlightMenu(atWindowPoint: point)
+    }
+    
+    public func finishMenuHighlight(performAction: Bool) {
+        if !self.isNodeLoaded {
+            return
+        }
+        self.controllerNode.finishMenuHighlight(performAction: performAction)
     }
     
     public func updateTheme(presentationData: PresentationData) {

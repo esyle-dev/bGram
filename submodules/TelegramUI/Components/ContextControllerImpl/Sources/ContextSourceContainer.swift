@@ -328,6 +328,14 @@ final class ContextSourceContainer: ASDisplayNode {
             self.presentationNode.popItems()
         }
         
+        func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool) {
+            self.presentationNode.setContentScrollingDriven(isDriven, menuSelection: menuSelection)
+        }
+        
+        func scrollContent(by delta: CGFloat) {
+            self.presentationNode.scrollContent(by: delta)
+        }
+        
         func update(transition: ContainedViewLayoutTransition) {
             guard let validLayout = self.validLayout else {
                 return
@@ -624,6 +632,14 @@ final class ContextSourceContainer: ASDisplayNode {
         if let activeSource = self.activeSource {
             activeSource.popItems()
         }
+    }
+    
+    func setContentScrollingDriven(_ isDriven: Bool, menuSelection: Bool) {
+        self.activeSource?.setContentScrollingDriven(isDriven, menuSelection: menuSelection)
+    }
+    
+    func scrollContent(by delta: CGFloat) {
+        self.activeSource?.scrollContent(by: delta)
     }
     
     private func update(transition: ContainedViewLayoutTransition) {

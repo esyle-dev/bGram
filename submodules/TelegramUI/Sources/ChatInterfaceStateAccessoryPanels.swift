@@ -71,7 +71,8 @@ func textInputAccessoryPanel(
             context: context,
             contents: .edit(ChatInputMessageAccessoryPanel.Contents.Edit(
                 id: editMessage.messageId,
-                message: nil
+                message: nil,
+                albumPhotoText: AlbumPhotoReplyStore.shared.text(for: editMessage.messageId)
             )),
             chatPeerId: chatPresentationInterfaceState.chatLocation.peerId,
             action: { _ in
@@ -222,7 +223,8 @@ func textInputAccessoryPanel(
                     message: nil,
                     extraIds: replyMessageSubject.extraMessageIds ?? [],
                     voiceTimeText: replyMessageSubject.voiceFragment?.timeText,
-                    voiceText: replyMessageSubject.voiceFragment?.text
+                    voiceText: replyMessageSubject.voiceFragment?.text,
+                    albumPhotoText: AlbumPhotoReplyStore.shared.text(for: replyMessageSubject.messageId)
                 )),
                 chatPeerId: chatPeerId,
                 action: { sourceView in

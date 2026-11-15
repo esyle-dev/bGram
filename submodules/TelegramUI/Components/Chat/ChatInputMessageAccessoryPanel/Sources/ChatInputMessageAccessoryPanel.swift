@@ -154,8 +154,10 @@ public final class ChatInputMessageAccessoryPanel: Component {
             /// For a reply to part of a voice message: the time it covers ("0:27 - 0:32") and the chosen words.
             public let voiceTimeText: String?
             public let voiceText: String?
+            /// Which photo of its album it is ("Photo 4 of 9"), when the reply is to one photo chosen from its menu.
+            public let albumPhotoText: String?
 
-            public init(id: EngineMessage.Id, quote: EngineMessageReplyQuote?, innerSubject: EngineMessageReplyInnerSubject?, message: EngineMessage?, extraIds: [EngineMessage.Id] = [], voiceTimeText: String? = nil, voiceText: String? = nil) {
+            public init(id: EngineMessage.Id, quote: EngineMessageReplyQuote?, innerSubject: EngineMessageReplyInnerSubject?, message: EngineMessage?, extraIds: [EngineMessage.Id] = [], voiceTimeText: String? = nil, voiceText: String? = nil, albumPhotoText: String? = nil) {
                 self.id = id
                 self.quote = quote
                 self.innerSubject = innerSubject
@@ -163,6 +165,7 @@ public final class ChatInputMessageAccessoryPanel: Component {
                 self.extraIds = extraIds
                 self.voiceTimeText = voiceTimeText
                 self.voiceText = voiceText
+                self.albumPhotoText = albumPhotoText
             }
 
             public static func ==(lhs: Reply, rhs: Reply) -> Bool {
@@ -181,6 +184,9 @@ public final class ChatInputMessageAccessoryPanel: Component {
                 if lhs.voiceTimeText != rhs.voiceTimeText || lhs.voiceText != rhs.voiceText {
                     return false
                 }
+                if lhs.albumPhotoText != rhs.albumPhotoText {
+                    return false
+                }
                 if lhs.message?.id != rhs.message?.id {
                     return false
                 }
@@ -194,14 +200,20 @@ public final class ChatInputMessageAccessoryPanel: Component {
         public final class Edit: Equatable {
             public let id: EngineMessage.Id
             public let message: EngineMessage?
+            /// Which photo of its album it is ("Photo 6 of 7"), when one photo of an album is edited from the menu of that photo.
+            public let albumPhotoText: String?
 
-            public init(id: EngineMessage.Id, message: EngineMessage?) {
+            public init(id: EngineMessage.Id, message: EngineMessage?, albumPhotoText: String? = nil) {
                 self.id = id
                 self.message = message
+                self.albumPhotoText = albumPhotoText
             }
 
             public static func ==(lhs: Edit, rhs: Edit) -> Bool {
                 if lhs.id != rhs.id {
+                    return false
+                }
+                if lhs.albumPhotoText != rhs.albumPhotoText {
                     return false
                 }
                 if lhs.message?.id != rhs.message?.id {
@@ -330,6 +342,8 @@ public final class ChatInputMessageAccessoryPanel: Component {
         private let longPressGestureRecognizer: UILongPressGestureRecognizer
         
         private let lineView: UIImageView
+        private let thumbnailNode: TransformImageNode
+        private var thumbnailImageId: EngineMedia.Id?
         private let titleNode: CompositeTextNode
         private let text = ComponentView<Empty>()
         private let tintText = ComponentView<Empty>()
@@ -378,7 +392,7 @@ public final class ChatInputMessageAccessoryPanel: Component {
                 titleView: self.titleNode.view,
                 textView: textView,
                 lineView: self.lineView,
-                imageView: nil
+                imageView: self.thumbnailNode.isHidden ? nil : self.thumbnailNode.view
             )
         }
         
@@ -393,6 +407,8 @@ public final class ChatInputMessageAccessoryPanel: Component {
             self.longPressGestureRecognizer = UILongPressGestureRecognizer()
             
             self.lineView = UIImageView()
+            self.thumbnailNode = TransformImageNode()
+            self.thumbnailNode.isHidden = true
             self.titleNode = CompositeTextNode()
             self.titleNode.displaysAsynchronously = false
             
@@ -409,6 +425,7 @@ public final class ChatInputMessageAccessoryPanel: Component {
             super.init(frame: frame)
             
             self.addSubview(self.lineView)
+            self.addSubview(self.thumbnailNode.view)
             self.addSubview(self.titleNode.view)
             
             self.addSubview(self.closeButtonIcon)
@@ -927,7 +944,7 @@ public final class ChatInputMessageAccessoryPanel: Component {
             
             var titleText: [CompositeTextNode.Component] = []
             switch component.contents {
-            case .edit:
+            case let .edit(edit):
                 let canEditMedia: Bool
                 //TODO:release
                 /*if let message = self.message, !messageMediaEditingOptions(message: message).isEmpty {
@@ -945,7 +962,10 @@ public final class ChatInputMessageAccessoryPanel: Component {
                 } else {
                     titleStringValue = environment.strings.Conversation_EditingMessagePanelTitle
                 }
-                titleText = [.text(NSAttributedString(string: titleStringValue, font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor))]
+                titleText = [.text(NSAttributedString(string: edit.albumPhotoText != nil ? environment.strings.Conversation_ContextMenuEditPhoto : titleStringValue, font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor))]
+                if let albumPhotoText = edit.albumPhotoText {
+                    textString = NSAttributedString(string: albumPhotoText, font: Font.regular(14.0), textColor: secondaryTextColor)
+                }
                 textString = renderInstantPagePreviewIcons(textString, font: Font.regular(14.0), textColor: environment.theme.chat.inputPanel.primaryTextColor)
             case let .reply(reply):
                 if let peer = self.messages.first?.peers[reply.id.peerId] as? TelegramChannel, case .broadcast = peer.info {
@@ -1045,6 +1065,10 @@ public final class ChatInputMessageAccessoryPanel: Component {
                 }
                 if let voiceText = reply.voiceText, !voiceText.isEmpty {
                     textString = NSAttributedString(string: voiceText, font: Font.regular(14.0), textColor: environment.theme.chat.inputPanel.primaryTextColor)
+                }
+                if let albumPhotoText = reply.albumPhotoText {
+                    // A reply to one photo of an album: the line under the name says which photo it is.
+                    textString = NSAttributedString(string: albumPhotoText, font: Font.regular(14.0), textColor: secondaryTextColor)
                 }
                 textString = renderInstantPagePreviewIcons(textString, font: Font.regular(14.0), textColor: environment.theme.chat.inputPanel.primaryTextColor)
             case let .forward(forward):
@@ -1337,6 +1361,37 @@ public final class ChatInputMessageAccessoryPanel: Component {
                 }
             }
             
+            // A reply to one photo of an album has the photo at the start of the text, the size and the shape it has in
+            // the reply of the message that is sent (twice the height of a line of the title, 8 pt corners, 6 pt gap).
+            let thumbnailSide: CGFloat = 34.0
+            var thumbnailExtraInset: CGFloat = 0.0
+            var albumPhotoText: String?
+            switch component.contents {
+            case let .reply(reply):
+                albumPhotoText = reply.albumPhotoText
+            case let .edit(edit):
+                albumPhotoText = edit.albumPhotoText
+            default:
+                break
+            }
+            if albumPhotoText != nil, let message = self.messages.first, let image = message.media.first(where: { $0 is TelegramMediaImage }) as? TelegramMediaImage, let representation = largestRepresentationForPhoto(image) {
+                let boundingSize = CGSize(width: thumbnailSide, height: thumbnailSide)
+                let applyThumbnail = self.thumbnailNode.asyncLayout()(TransformImageArguments(corners: ImageCorners(radius: 8.0), imageSize: representation.dimensions.cgSize.aspectFilled(boundingSize), boundingSize: boundingSize, intrinsicInsets: UIEdgeInsets(), emptyColor: environment.theme.chat.inputPanel.primaryTextColor.withAlphaComponent(0.05)))
+                applyThumbnail()
+                if self.thumbnailImageId != image.imageId {
+                    self.thumbnailImageId = image.imageId
+                    let hasSpoiler = message.attributes.contains(where: { $0 is MediaSpoilerMessageAttribute })
+                    self.thumbnailNode.setSignal(chatMessagePhotoThumbnail(account: component.context.account, userLocation: MediaResourceUserLocation.peer(message.id.peerId), photoReference: .message(message: MessageReference(message._asMessage()), media: image), blurred: hasSpoiler))
+                }
+                self.thumbnailNode.frame = CGRect(origin: CGPoint(x: lineFrame.maxX + 8.0, y: floor((size.height - thumbnailSide) * 0.5)), size: boundingSize)
+                self.thumbnailNode.isHidden = false
+                thumbnailExtraInset = thumbnailSide + 6.0
+            } else {
+                self.thumbnailNode.isHidden = true
+                self.thumbnailImageId = nil
+            }
+            textInsets.left += thumbnailExtraInset
+
             // A reply to a photo detail shows the selected fragment before the text, drawn by the bubble
             // header's generator: the whole fragment, placeholder bands around it, rounded corners.
             var contentLeftInset = lineFrame.maxX + textInsets.left

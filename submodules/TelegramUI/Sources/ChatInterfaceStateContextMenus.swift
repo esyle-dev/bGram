@@ -40,6 +40,7 @@ import AdsInfoScreen
 import AdsReportScreen
 import WalletContext
 import BetaFeatures
+import SharedMessageSetupScreen
  
 private struct MessageContextMenuData {
     let starStatus: Bool?
@@ -1634,7 +1635,20 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             }
         }
         
-        if data.canEdit && !isPinnedMessages && !isMigrated {
+        // A shared message is edited in the shared editor, by every editor and not only its author, for
+        // as long as its bubble offers Edit (until editing is closed); the input-panel edit never applies.
+        let sharedAttribute = BetaFeatures.isEnabled(.sharedMessages) ? message.attributes.first(where: { $0 is SharedMessageAttribute }) as? SharedMessageAttribute : nil
+        if let sharedAttribute {
+            if !isPinnedMessages && !isMigrated && sharedAttribute.footerState(now: Int32(Date().timeIntervalSince1970)) != .closed {
+                let messageId = message.id
+                actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_MessageDialogEdit, icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Edit"), color: theme.actionSheet.primaryTextColor)
+                }, action: { _, f in
+                    f(.dismissWithoutContent)
+                    controllerInteraction.openSharedMessageEditor?(messageId)
+                })))
+            }
+        } else if data.canEdit && !isPinnedMessages && !isMigrated {
             actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_MessageDialogEdit, icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Edit"), color: theme.actionSheet.primaryTextColor)
             }, action: { c, f in
@@ -1648,7 +1662,37 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                 }
             })))
         }
-        
+
+        if data.canEdit && !isPinnedMessages && !isMigrated, activeTodo == nil, activePoll == nil, let message = messages.first, !message.flags.contains(.Incoming), !message.attributes.contains(where: { $0 is SharedMessageAttribute }) {
+            var isGroupChat = false
+            if message.peers[message.id.peerId] is TelegramGroup {
+                isGroupChat = true
+            } else if let channel = message.peers[message.id.peerId] as? TelegramChannel, case .group = channel.info {
+                isGroupChat = true
+            }
+            if isGroupChat {
+                actions.append(.action(ContextMenuActionItem(text: chatPresentationInterfaceState.strings.Conversation_LetOthersEdit, icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Edit"), color: theme.actionSheet.primaryTextColor)
+                }, action: { _, f in
+                    f(.dismissWithoutContent)
+                    let messageId = message.id
+                    let setupController = sharedMessageSetupController(context: context, peerId: message.id.peerId, initialTitle: sharedMessageDefaultTitle(text: message.text), messageText: message.text, completion: { result in
+                        let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Messages.Message(id: messageId))
+                        |> mapToSignal { message -> Signal<Never, NoError> in
+                            guard let message else {
+                                return .complete()
+                            }
+                            return SharedMessageRoom.shareMessage(context: context, message: message, result: result)
+                            |> `catch` { _ -> Signal<Never, NoError> in
+                                return .complete()
+                            }
+                        }).startStandalone()
+                    })
+                    controllerInteraction.navigationController()?.pushViewController(setupController)
+                })))
+            }
+        }
+
         if let message = messages.first, message.id.namespace == Namespaces.Message.Cloud, let channel = message.peers[message.id.peerId] as? TelegramChannel, channel.isMonoForum {
             var canSuggestPost = true
             for media in message.media {

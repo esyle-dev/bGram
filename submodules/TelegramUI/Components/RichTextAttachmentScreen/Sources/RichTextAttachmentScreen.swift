@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreImage
 import Display
 import ComponentFlow
 import AccountContext
@@ -54,13 +55,15 @@ private final class HostChecklistCheckboxView: UIView, RichTextChecklistMarkerVi
 
 private final class RichTextSendButtonComponent: Component {
     let theme: PresentationTheme
+    let icon: String
     let isEnabled: Bool
     let isLocked: Bool
     let action: () -> Void
     let longPressAction: (() -> Void)?
 
-    init(theme: PresentationTheme, isEnabled: Bool, isLocked: Bool, action: @escaping () -> Void, longPressAction: (() -> Void)?) {
+    init(theme: PresentationTheme, icon: String = "Chat/Input/Text/SendIcon", isEnabled: Bool, isLocked: Bool, action: @escaping () -> Void, longPressAction: (() -> Void)?) {
         self.theme = theme
+        self.icon = icon
         self.isEnabled = isEnabled
         self.isLocked = isLocked
         self.action = action
@@ -69,6 +72,9 @@ private final class RichTextSendButtonComponent: Component {
 
     static func ==(lhs: RichTextSendButtonComponent, rhs: RichTextSendButtonComponent) -> Bool {
         if lhs.theme !== rhs.theme {
+            return false
+        }
+        if lhs.icon != rhs.icon {
             return false
         }
         if lhs.isEnabled != rhs.isEnabled {
@@ -133,7 +139,7 @@ private final class RichTextSendButtonComponent: Component {
                     preferClearGlass: false,
                     background: component.isEnabled ? .activeTint(inset: false) : .color(component.theme.chat.inputPanel.panelControlDisabledColor),
                     items: [
-                        GlassControlGroupComponent.Item(id: 0, content: .icon("Chat/Input/Text/SendIcon"), action: component.isEnabled ? component.action : nil)
+                        GlassControlGroupComponent.Item(id: 0, content: .icon(component.icon), action: component.isEnabled ? component.action : nil)
                     ],
                     minWidth: 44.0
                 )),
@@ -317,6 +323,7 @@ public class RichTextAttachmentScreen: ViewControllerComponentContainer, Attachm
     private let sendMessage: (Document, [String: Media], [Int64: TelegramMediaFile], Bool) -> Void
     private let syncContent: ((Document, [String: Media], [Int64: TelegramMediaFile]) -> Void)?
     private let sendContextActions: RichTextAttachmentScreenSendContextActions?
+    private let collaboration: RichTextCollaborationHost?
 
     public convenience init(
         context: AccountContext,
@@ -353,12 +360,16 @@ public class RichTextAttachmentScreen: ViewControllerComponentContainer, Attachm
         preuploadPeerId: EnginePeer.Id? = nil,
         presentAttachmentMenu: ((_ request: RichTextAttachmentScreen.MediaRequest, @escaping ([RichTextAttachmentScreen.RichTextAttachment]) -> Void) -> Void)?,
         presentFormulaEditor: ((_ initialValue: String?, _ completion: @escaping (String) -> Void) -> Void)?,
-        pastedMarkdownParser: ((AccountContext, String) -> ChatInputContent?)? = nil
+        pastedMarkdownParser: ((AccountContext, String) -> ChatInputContent?)? = nil,
+        /// Makes this a shared editor: the document is everyone's, Send becomes Done, and the header
+        /// shows who is editing. See `RichTextCollaborationHost`.
+        collaboration: RichTextCollaborationHost? = nil
     ) {
         self.context = context
         self.sendMessage = sendMessage
         self.syncContent = syncContent
         self.sendContextActions = sendContextActions
+        self.collaboration = collaboration
 
         let overNavigationContainer = SparseContainerView()
 
@@ -370,7 +381,8 @@ public class RichTextAttachmentScreen: ViewControllerComponentContainer, Attachm
             overNavigationContainer: overNavigationContainer,
             presentAttachmentMenu: presentAttachmentMenu,
             presentFormulaEditor: presentFormulaEditor,
-            pastedMarkdownParser: pastedMarkdownParser
+            pastedMarkdownParser: pastedMarkdownParser,
+            collaboration: collaboration
         ), navigationBarAppearance: .transparent, theme: .default)
 
         self._hasGlassStyle = true
@@ -404,6 +416,12 @@ public class RichTextAttachmentScreen: ViewControllerComponentContainer, Attachm
     }
     
     fileprivate func donePressed() {
+        if let collaboration = self.collaboration {
+            // A shared editor has no Send: everything is already saved as typed, so Done just leaves.
+            collaboration.finished()
+            self.dismiss()
+            return
+        }
         guard let componentView = self.node.hostView.componentView as? RichTextAttachmentScreenComponent.View else {
             return
         }
@@ -443,7 +461,13 @@ public class RichTextAttachmentScreen: ViewControllerComponentContainer, Attachm
         self.dismiss()
     }
 
-    fileprivate func close() {
+    /// Leaves the editor as its close button does (a shared editor saves through `finished`).
+    public func close() {
+        if let collaboration = self.collaboration {
+            collaboration.finished()
+            self.dismiss()
+            return
+        }
         guard let syncContent = self.syncContent, let componentView = self.node.hostView.componentView as? RichTextAttachmentScreenComponent.View else {
             self.dismiss()
             return
@@ -570,8 +594,9 @@ final class RichTextAttachmentScreenComponent: Component {
     let presentAttachmentMenu: ((_ request: RichTextAttachmentScreen.MediaRequest, @escaping ([RichTextAttachmentScreen.RichTextAttachment]) -> Void) -> Void)?
     let presentFormulaEditor: ((_ initialValue: String?, _ completion: @escaping (String) -> Void) -> Void)?
     let pastedMarkdownParser: ((AccountContext, String) -> ChatInputContent?)?
+    let collaboration: RichTextCollaborationHost?
 
-    init(context: AccountContext, mode: RichTextAttachmentScreen.Mode, sendContextActions: RichTextAttachmentScreenSendContextActions?, preuploadPeerId: EnginePeer.Id?, overNavigationContainer: UIView, presentAttachmentMenu: ((_ request: RichTextAttachmentScreen.MediaRequest, @escaping ([RichTextAttachmentScreen.RichTextAttachment]) -> Void) -> Void)?, presentFormulaEditor: ((_ initialValue: String?, _ completion: @escaping (String) -> Void) -> Void)?, pastedMarkdownParser: ((AccountContext, String) -> ChatInputContent?)?) {
+    init(context: AccountContext, mode: RichTextAttachmentScreen.Mode, sendContextActions: RichTextAttachmentScreenSendContextActions?, preuploadPeerId: EnginePeer.Id?, overNavigationContainer: UIView, presentAttachmentMenu: ((_ request: RichTextAttachmentScreen.MediaRequest, @escaping ([RichTextAttachmentScreen.RichTextAttachment]) -> Void) -> Void)?, presentFormulaEditor: ((_ initialValue: String?, _ completion: @escaping (String) -> Void) -> Void)?, pastedMarkdownParser: ((AccountContext, String) -> ChatInputContent?)?, collaboration: RichTextCollaborationHost?) {
         self.context = context
         self.mode = mode
         self.sendContextActions = sendContextActions
@@ -580,6 +605,7 @@ final class RichTextAttachmentScreenComponent: Component {
         self.presentAttachmentMenu = presentAttachmentMenu
         self.presentFormulaEditor = presentFormulaEditor
         self.pastedMarkdownParser = pastedMarkdownParser
+        self.collaboration = collaboration
     }
 
     static func ==(lhs: RichTextAttachmentScreenComponent, rhs: RichTextAttachmentScreenComponent) -> Bool {
@@ -591,11 +617,40 @@ final class RichTextAttachmentScreenComponent: Component {
         private let title = ComponentView<Empty>()
         private let leftNavActionsBar = ComponentView<Empty>()
         private let rightNavActionsBar = ComponentView<Empty>()
+        /// The shared editor's "…" button, to the right of undo/redo.
+        private let moreNavActionsBar = ComponentView<Empty>()
         
         private let editor = RichTextEditorView()
         // Frosted fade at the screen top (mirrors ComposePollScreen) — scrolling content dissolves into the
         // nav region. Overlaid above the editor; the nav buttons live in the separate over-nav container.
         private let topEdgeEffectView = EdgeEffectView()
+
+        // The shared-editor half: the header, the lock overlays and the exchange with the host.
+        fileprivate var collaborationHeaderView: RichTextCollaborationHeaderView?
+        fileprivate var collaborationDisposable: Disposable?
+        fileprivate var collaborationUpdate: RichTextCollaborationHost.Update?
+        fileprivate var collaborationAppliedRevision: Int = 0
+        fileprivate var collaborationLocalChangeTimer: SwiftSignalKit.Timer?
+        fileprivate var collaborationLockViews: [EnginePeer.Id: RichTextCollaborationLockView] = [:]
+        fileprivate var collaborationLockSnapshotKeys: [EnginePeer.Id: RichTextCollaborationLockSnapshotKey] = [:]
+        fileprivate var collaborationLockSnapshotPasses: [EnginePeer.Id: Int] = [:]
+        fileprivate var collaborationDisplayLink: CADisplayLink?
+        fileprivate var collaborationLastCaretBlock: BlockID?
+        /// The document as the editor reads it back after the last set or send. The editor normalises
+        /// what it is given (a run gains its font size), so this, not the host's document, is what a
+        /// change is measured against.
+        fileprivate var collaborationAppliedDocument: Document?
+        fileprivate var collaborationScrollObservation: NSKeyValueObservation?
+        fileprivate var collaborationLastSendTime: Double = 0.0
+        fileprivate var collaborationOverlay: RichTextCollaborationOverlay?
+        fileprivate var collaborationNoticeView: RichTextCollaborationNoticeView?
+        fileprivate var collaborationNoticeDisposable: Disposable?
+        /// The account's own sent changes, as steps of block changes; undo and redo replay them as
+        /// new changes, so nobody else's edits are ever taken back.
+        fileprivate var collaborationUndoStack: [[RichTextCollaborationBlockChange]] = []
+        fileprivate var collaborationRedoStack: [[RichTextCollaborationBlockChange]] = []
+        fileprivate var collaborationLastStepTime: Double = 0.0
+        fileprivate var collaborationSkipUndoRecording = false
 
         /// The current editor document, read by the controller's `donePressed`.
         var currentDocument: Document {
@@ -615,6 +670,11 @@ final class RichTextAttachmentScreenComponent: Component {
             for (_, disposable) in self.preuploadObservers {
                 disposable.dispose()
             }
+            self.collaborationDisposable?.dispose()
+            self.collaborationNoticeDisposable?.dispose()
+            self.collaborationLocalChangeTimer?.invalidate()
+            self.collaborationDisplayLink?.invalidate()
+            self.collaborationScrollObservation?.invalidate()
         }
 
         /// Every `mediaID` the document references, including inside tables, quotes and details.
@@ -1720,9 +1780,13 @@ final class RichTextAttachmentScreenComponent: Component {
                     guard let self, !self.isUpdating else { return }
                     self.componentState?.updated(transition: .spring(duration: 0.4))
                     self.reconcilePreupload()
+                    self.collaborationHandleChange()
                 }
 
                 self.addSubview(editor)
+                if let collaboration = component.collaboration {
+                    self.setupCollaboration(collaboration)
+                }
                 self.topEdgeEffectView.isUserInteractionEnabled = false
                 self.addSubview(self.topEdgeEffectView)
             }
@@ -1783,18 +1847,66 @@ final class RichTextAttachmentScreenComponent: Component {
                     preferClearGlass: false,
                     background: .panel,
                     items: [
-                        GlassControlGroupComponent.Item(id: 0, content: .icon("Media Editor/Undo"), action: editorState.canUndo ? { [weak self] in
-                            self?.editor.undo()
+                        GlassControlGroupComponent.Item(id: 0, content: .icon("Media Editor/Undo"), action: (component.collaboration != nil ? !self.collaborationUndoStack.isEmpty : editorState.canUndo) ? { [weak self] in
+                            guard let self else {
+                                return
+                            }
+                            if self.component?.collaboration != nil {
+                                self.collaborationUndo()
+                            } else {
+                                self.editor.undo()
+                            }
                         } : nil),
-                        GlassControlGroupComponent.Item(id: 1, content: .icon("Media Editor/Redo"), action: editorState.canRedo ? { [weak self] in
-                            self?.editor.redo()
+                        GlassControlGroupComponent.Item(id: 1, content: .icon("Media Editor/Redo"), action: (component.collaboration != nil ? !self.collaborationRedoStack.isEmpty : editorState.canRedo) ? { [weak self] in
+                            guard let self else {
+                                return
+                            }
+                            if self.component?.collaboration != nil {
+                                self.collaborationRedo()
+                            } else {
+                                self.editor.redo()
+                            }
                         } : nil)
                     ], minWidth: 44.0)
                 ),
                 environment: {},
                 containerSize: CGSize(width: availableSize.width, height: barButtonSize.height)
             )
-            let rightNavActionsBarFrame = CGRect(origin: CGPoint(x: availableSize.width - (environment.safeInsets.left + 16.0) - rightNavActionsBarSize.width, y: 16.0), size: rightNavActionsBarSize)
+            // The shared editor has a "…" menu at the far right; undo/redo then stand 10pt to its left.
+            var rightNavActionsBarRight = availableSize.width - (environment.safeInsets.right + 16.0)
+            if let collaboration = component.collaboration {
+                let moreNavActionsBarSize = self.moreNavActionsBar.update(
+                    transition: transition,
+                    component: AnyComponent(GlassControlGroupComponent(
+                        theme: environment.theme,
+                        preferClearGlass: false,
+                        background: .panel,
+                        items: [
+                            GlassControlGroupComponent.Item(id: 0, content: .customIcon(id: "more", component: AnyComponent(Image(image: UIImage(systemName: "ellipsis", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17.0, weight: .semibold)), tintColor: environment.theme.rootController.navigationBar.primaryTextColor, size: CGSize(width: 22.0, height: 22.0), contentMode: .scaleAspectFit)), insets: .zero), action: { [weak self] in
+                                guard let self, let controller = self.environment?.controller() as? RichTextAttachmentScreen, let sourceView = self.moreNavActionsBar.view else {
+                                    return
+                                }
+                                collaboration.openMenu(controller, sourceView, { [weak controller] in
+                                    controller?.close()
+                                })
+                            })
+                        ], minWidth: 44.0)
+                    ),
+                    environment: {},
+                    containerSize: CGSize(width: availableSize.width, height: barButtonSize.height)
+                )
+                let moreNavActionsBarFrame = CGRect(origin: CGPoint(x: rightNavActionsBarRight - moreNavActionsBarSize.width, y: 16.0), size: moreNavActionsBarSize)
+                if let moreNavActionsBarView = self.moreNavActionsBar.view {
+                    if moreNavActionsBarView.superview == nil {
+                        component.overNavigationContainer.addSubview(moreNavActionsBarView)
+                    }
+                    transition.setFrame(view: moreNavActionsBarView, frame: moreNavActionsBarFrame)
+                }
+                rightNavActionsBarRight = moreNavActionsBarFrame.minX - 10.0
+            } else if let moreNavActionsBarView = self.moreNavActionsBar.view, moreNavActionsBarView.superview != nil {
+                moreNavActionsBarView.removeFromSuperview()
+            }
+            let rightNavActionsBarFrame = CGRect(origin: CGPoint(x: rightNavActionsBarRight - rightNavActionsBarSize.width, y: 16.0), size: rightNavActionsBarSize)
             if let rightNavActionsBarView = self.rightNavActionsBar.view {
                 if rightNavActionsBarView.superview == nil {
                     component.overNavigationContainer.addSubview(rightNavActionsBarView)
@@ -1837,11 +1949,25 @@ final class RichTextAttachmentScreenComponent: Component {
             self.backgroundColor = environment.theme.actionSheet.opaqueItemBackgroundColor
 
             let emojiPanelHeight = self.emojiKeyboard?.updatePanel(container: self, availableSize: availableSize, environment: environment, transition: transition) ?? 0.0
+            // The shared editor's header sits inside the editor's scroll content, in room reserved
+            // through the top content margin, so it scrolls with the text.
+            let collaborationHeaderHeight: CGFloat = component.collaboration != nil ? RichTextCollaborationHeaderView.height : 0.0
             let editorTop = environment.navigationHeight
             let editorFrame = CGRect(x: environment.safeInsets.left, y: 0.0,
                                      width: availableSize.width - environment.safeInsets.left - environment.safeInsets.right,
                                      height: availableSize.height)
             self.editor.frame = editorFrame
+            if let collaboration = component.collaboration, let headerView = self.collaborationHeaderView {
+                let update = self.collaborationUpdate
+                headerView.update(context: component.context, theme: environment.theme, backgroundColor: environment.theme.actionSheet.opaqueItemBackgroundColor, title: update?.title ?? collaboration.title, status: update.map { .loaded($0.status) } ?? .loading, versionCount: update?.versionCount ?? 0, width: editorFrame.width, sideInset: 16.0)
+                headerView.frame = CGRect(x: editorFrame.minX, y: headerView.frame.minY, width: editorFrame.width, height: collaborationHeaderHeight)
+                self.syncCollaborationHeaderPosition()
+            }
+            if let overlay = self.collaborationOverlay {
+                overlay.frame = CGRect(origin: .zero, size: availableSize)
+                overlay.updateLayout(size: availableSize, safeInsets: UIEdgeInsets(top: environment.statusBarHeight, left: environment.safeInsets.left, bottom: environment.safeInsets.bottom, right: environment.safeInsets.right), navigationHeight: environment.navigationHeight)
+                self.bringSubviewToFront(overlay)
+            }
             
             var barActions: [RichTextActionBarComponent.Action] = []
             let barActionsId: AnyHashable
@@ -2113,15 +2239,16 @@ final class RichTextAttachmentScreenComponent: Component {
                 transition: transition,
                 component: AnyComponent(RichTextSendButtonComponent(
                     theme: environment.theme,
-                    isEnabled: isSendEnabled,
-                    isLocked: isSendRichFormattingLocked,
+                    icon: component.collaboration != nil ? "Navigation/Done" : "Chat/Input/Text/SendIcon",
+                    isEnabled: component.collaboration != nil || isSendEnabled,
+                    isLocked: component.collaboration == nil && isSendRichFormattingLocked,
                     action: { [weak self] in
                         guard let self, let controller = self.environment?.controller() as? RichTextAttachmentScreen else {
                             return
                         }
                         controller.donePressed()
                     },
-                    longPressAction: longPressSendAvailable ? { [weak self] in
+                    longPressAction: (longPressSendAvailable && component.collaboration == nil) ? { [weak self] in
                         guard let self, let controller = self.environment?.controller() as? RichTextAttachmentScreen else {
                             return
                         }
@@ -2175,11 +2302,27 @@ final class RichTextAttachmentScreenComponent: Component {
                 }
                 transition.setFrame(view: actionBarView, frame: actionBarFrame)
             }
+            // The shared editor's notice stands centred 12pt over the toolbar row, and moves with it.
+            if let noticeView = self.collaborationNoticeView, noticeView.notice != nil {
+                // A capsule about to appear is placed without animation first, then makes its entrance.
+                let appearing = noticeView.needsAppear
+                let noticeTransition: ComponentTransition = appearing ? .immediate : transition
+                let noticeSize = noticeView.update(theme: environment.theme, maxWidth: availableSize.width - 32.0, transition: noticeTransition)
+                let noticeFrame = CGRect(origin: CGPoint(x: floor((availableSize.width - noticeSize.width) * 0.5), y: actionBarFrame.minY - 12.0 - noticeSize.height), size: noticeSize)
+                noticeTransition.setPosition(view: noticeView, position: noticeFrame.center)
+                noticeTransition.setBounds(view: noticeView, bounds: CGRect(origin: .zero, size: noticeSize))
+                if appearing {
+                    noticeView.animateIn()
+                }
+            }
             bottomInset += 6.0 + actionBarSize.height + 6.0
             
             // The editor no longer tracks the keyboard; supply the bottom obstruction as a scroll inset.
             // Only one of (system keyboard / emoji panel) is up at a time (the emoji panel uses an
             // EmptyInputView, so inputHeight ≈ 0 while it shows); the home-indicator safe area is the floor.
+            let editorInsets = UIEdgeInsets(top: editorTop, left: 0.0, bottom: bottomInset + 16.0, right: 0.0)
+            let editorMargins = UIEdgeInsets(top: 12.0 + collaborationHeaderHeight, left: 0.0, bottom: 12.0, right: 0.0)
+            self.appliedEditorLayout = (editorFrame.size, editorInsets, editorMargins)
             _ = self.editor.update(size: editorFrame.size,
                                    insets: UIEdgeInsets(top: editorTop, left: 0.0, bottom: bottomInset + 16.0, right: 0.0),
                                    contentMargins: UIEdgeInsets(top: 12.0, left: 0.0, bottom: 12.0, right: 0.0))
@@ -2247,3 +2390,544 @@ private func preuploadPrimaryResource(_ media: Media) -> MediaResource? {
     }
     return nil
 }
+
+/// The shared-editor half of the screen's view. Private members of `View` are reachable here because
+/// the extension is in the same file.
+private final class RichTextCollaborationDisplayLinkTarget: NSObject {
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    @objc func tick() {
+        self.action()
+    }
+}
+
+private extension RichTextAttachmentScreenComponent.View {
+    func setupCollaboration(_ host: RichTextCollaborationHost) {
+        let headerView = RichTextCollaborationHeaderView(frame: .zero)
+        headerView.historyTapped = { [weak self] sourceView in
+            guard let self, let controller = self.environment?.controller() else {
+                return
+            }
+            host.openHistory(controller, sourceView, { [weak self] overlay in
+                self?.presentCollaborationOverlay(overlay)
+            })
+        }
+        // The header sits over the editor and follows its scroll offset, so it reads as part of the
+        // content without living in the editor's view tree, which the editor restacks on every reload.
+        self.insertSubview(headerView, aboveSubview: self.editor)
+        self.collaborationHeaderView = headerView
+        self.collaborationAppliedDocument = self.editor.document
+        // The header and the locks are siblings of the editor, so they follow every scroll step here,
+        // the moment the offset changes; the display link below only catches layout changes.
+        self.collaborationScrollObservation = self.editor.collaborationContentHostView.observe(\.contentOffset, options: [.new]) { [weak self] _, _ in
+            self?.syncCollaborationHeaderPosition()
+            self?.syncCollaborationLocks()
+        }
+
+        self.collaborationDisposable = (host.updates
+        |> deliverOnMainQueue).startStrict(next: { [weak self] update in
+            self?.applyCollaborationUpdate(update)
+        })
+
+        let noticeView = RichTextCollaborationNoticeView(frame: .zero)
+        self.addSubview(noticeView)
+        self.collaborationNoticeView = noticeView
+        self.collaborationNoticeDisposable = (host.notice
+        |> distinctUntilChanged
+        |> deliverOnMainQueue).startStrict(next: { [weak self] notice in
+            guard let self, let noticeView = self.collaborationNoticeView else {
+                return
+            }
+            let wasShown = noticeView.isShown
+            if notice == nil && !wasShown {
+                return
+            }
+            noticeView.setNotice(notice)
+            // The subscription delivers its current value synchronously, from inside this view's own
+            // update (where it is set up); a nested update there traps, so the relayout waits a turn.
+            // A notice replacing another resizes the capsule smoothly; a fresh one appears at its size.
+            let transition: ComponentTransition = wasShown && notice != nil ? .spring(duration: 0.4) : .immediate
+            DispatchQueue.main.async { [weak self] in
+                self?.componentState?.updated(transition: transition)
+            }
+        })
+
+        // The locks follow the text as it scrolls, and the editor reports no scrolling, so they are
+        // repositioned on a slow display link.
+        let displayLink = CADisplayLink(target: RichTextCollaborationDisplayLinkTarget(action: { [weak self] in
+            self?.syncCollaborationLocks()
+        }), selector: #selector(RichTextCollaborationDisplayLinkTarget.tick))
+        displayLink.preferredFramesPerSecond = 20
+        displayLink.add(to: .main, forMode: .common)
+        self.collaborationDisplayLink = displayLink
+    }
+
+    func applyCollaborationUpdate(_ update: RichTextCollaborationHost.Update) {
+        let previous = self.collaborationUpdate
+        self.collaborationUpdate = update
+
+        if update.revision != self.collaborationAppliedRevision {
+            Logger.shared.log("SharedRoom", "screen: update revision \(update.revision) (applied \(self.collaborationAppliedRevision)) participants=\(update.participants.count) status=\(update.status)")
+            self.collaborationAppliedRevision = update.revision
+            let current = self.editor.document
+            // What the editor holds, expressed in the host's blocks of the PREVIOUS update: equal to
+            // the new document only when the update carries nothing the editor does not show.
+            let shown = self.collaborationAppliedDocument.flatMap { self.collaborationCompose(editorDocument: $0, base: previous?.document) }
+            if update.document != current && update.document != shown {
+                // What was typed since the last send is only in the editor: those blocks stay as the
+                // editor has them (nobody else may enter a held paragraph) and remain unsent.
+                var merged = update.document
+                var dirtyIds = Set<BlockID>()
+                if let applied = self.collaborationAppliedDocument {
+                    let appliedById = Dictionary(applied.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    let currentById = Dictionary(current.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    for (index, block) in merged.blocks.enumerated() {
+                        if let editorBlock = currentById[block.id], let appliedBlock = appliedById[block.id], editorBlock != appliedBlock {
+                            merged.blocks[index] = editorBlock
+                            dirtyIds.insert(block.id)
+                        }
+                    }
+                    // A paragraph the editor added and has not sent yet keeps its place after its predecessor.
+                    var mergedIds = Set(merged.blocks.map { $0.id })
+                    var previousId: BlockID?
+                    for block in current.blocks {
+                        if !mergedIds.contains(block.id) && appliedById[block.id] == nil {
+                            let insertAt = previousId.flatMap { id in merged.blocks.firstIndex(where: { $0.id == id }).map { $0 + 1 } } ?? 0
+                            merged.blocks.insert(block, at: insertAt)
+                            mergedIds.insert(block.id)
+                            dirtyIds.insert(block.id)
+                        }
+                        previousId = block.id
+                    }
+                }
+                Logger.shared.log("SharedRoom", "screen: replacing document, kept \(dirtyIds.count) unsent block(s)")
+                // Replacing the document drops the selection, so the caret is put back by block and offset.
+                let caret = RichTextCollaborationFlatAxis.blockAndLocalOffset(forFlat: self.editor.composerSelectedRange.location, in: current)
+                self.collaborationLocalChangeTimer?.invalidate()
+                if merged != current {
+                    let reveal = self.collaborationRevealPrepare(from: current, to: merged, skipping: dirtyIds)
+                    self.editor.document = merged
+                    if let caret, let restored = RichTextCollaborationFlatAxis.flatOffset(ofBlock: caret.0, localOffset: caret.1, in: merged) {
+                        self.editor.composerSelectedRange = NSRange(location: restored, length: 0)
+                    }
+                    self.collaborationRevealRun(reveal)
+                }
+                // The read-back is what is applied, except the unsent blocks, which keep their old
+                // applied form (or none) so the next pass sees them as changed and sends them.
+                var applied = self.editor.document
+                if !dirtyIds.isEmpty, let previousApplied = self.collaborationAppliedDocument {
+                    let previousById = Dictionary(previousApplied.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    applied.blocks = applied.blocks.compactMap { block in
+                        guard dirtyIds.contains(block.id) else {
+                            return block
+                        }
+                        return previousById[block.id]
+                    }
+                }
+                self.collaborationAppliedDocument = applied
+                if !dirtyIds.isEmpty {
+                    self.collaborationHandleChange()
+                }
+            }
+        }
+
+        if previous?.title != update.title || previous?.participants != update.participants || previous?.status != update.status || previous?.versionCount != update.versionCount {
+            self.componentState?.updated(transition: .immediate)
+        }
+        self.syncCollaborationLocks()
+    }
+
+    func collaborationHandleChange() {
+        guard let host = self.component?.collaboration else {
+            return
+        }
+        // At a paragraph's first position the editor reports no block; the flat axis still knows it.
+        let caretBlock = self.editor.caretTopLevelBlockID() ?? RichTextCollaborationFlatAxis.blockAndLocalOffset(forFlat: self.editor.composerSelectedRange.location, in: self.editor.document)?.0
+        if caretBlock != self.collaborationLastCaretBlock {
+            self.collaborationLastCaretBlock = caretBlock
+            host.localCaretChanged(caretBlock)
+        }
+        // A held paragraph cannot be entered: the caret steps back to the nearest free one.
+        if let caretBlock, let update = self.collaborationUpdate {
+            let held = Set(update.participants.compactMap { $0.blockId })
+            if held.contains(caretBlock) {
+                let offset = RichTextCollaborationFlatAxis.escapeOffset(from: caretBlock, held: held, in: self.editor.document)
+                self.editor.composerSelectedRange = NSRange(location: offset, length: 0)
+            }
+        }
+
+        // Pacing against the server's flood limit (~20 messages a minute to a group, measured
+        // 2026-11-04: FLOOD_WAIT_300 after 32 in a minute): a change goes out 1 s after the last
+        // keystroke, and every 3 s while typing does not stop.
+        let now = CFAbsoluteTimeGetCurrent()
+        let delay = max(0.1, min(1.0, 3.0 - (now - self.collaborationLastSendTime)))
+        self.collaborationLocalChangeTimer?.invalidate()
+        let timer = SwiftSignalKit.Timer(timeout: delay, repeat: false, completion: { [weak self] in
+            guard let self, let host = self.component?.collaboration else {
+                return
+            }
+            self.collaborationLastSendTime = CFAbsoluteTimeGetCurrent()
+            let editorDocument = self.editor.document
+            if editorDocument == self.collaborationAppliedDocument {
+                Logger.shared.log("SharedRoom", "screen: editor document equals the applied one, nothing to send")
+                return
+            }
+            var document = self.collaborationCompose(editorDocument: editorDocument)
+            // A paragraph someone else holds is theirs: whatever landed in it here is dropped and
+            // the editor shows their version again.
+            let held = Set(self.collaborationUpdate?.participants.compactMap { $0.blockId } ?? [])
+            if !held.isEmpty, let base = self.collaborationUpdate?.document {
+                let baseById = Dictionary(base.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                var reverted = false
+                for (index, block) in document.blocks.enumerated() where held.contains(block.id) {
+                    if let baseBlock = baseById[block.id], baseBlock != block {
+                        document.blocks[index] = baseBlock
+                        reverted = true
+                    }
+                }
+                if reverted {
+                    let caret = RichTextCollaborationFlatAxis.blockAndLocalOffset(forFlat: self.editor.composerSelectedRange.location, in: editorDocument)
+                    self.editor.document = document
+                    if let caret {
+                        let offset = held.contains(caret.0) ? RichTextCollaborationFlatAxis.escapeOffset(from: caret.0, held: held, in: document) : (RichTextCollaborationFlatAxis.flatOffset(ofBlock: caret.0, localOffset: caret.1, in: document) ?? 0)
+                        self.editor.composerSelectedRange = NSRange(location: offset, length: 0)
+                    }
+                    self.collaborationAppliedDocument = self.editor.document
+                    Logger.shared.log("SharedRoom", "screen: reverted typing in a held paragraph")
+                    if document == self.collaborationUpdate?.document {
+                        return
+                    }
+                } else {
+                    self.collaborationAppliedDocument = editorDocument
+                }
+            } else {
+                self.collaborationAppliedDocument = editorDocument
+            }
+            if document == self.collaborationUpdate?.document {
+                Logger.shared.log("SharedRoom", "screen: composed document equals the host's, nothing to send")
+                return
+            }
+            Logger.shared.log("SharedRoom", "screen: sending local change, blocks=\(document.blocks.count)")
+            self.collaborationRecordStep(from: self.collaborationUpdate?.document, to: document)
+            host.localDocumentChanged(document, self.collaborationAppliedRevision, self.editor.caretTopLevelBlockID())
+        }, queue: Queue.mainQueue())
+        self.collaborationLocalChangeTimer = timer
+        timer.start()
+
+        self.syncCollaborationLocks()
+    }
+
+    /// The document to report: the host's own blocks where the editor did not change them (so an
+    /// untouched block stays byte-identical and is not sent), the editor's blocks where it did.
+    func collaborationCompose(editorDocument: Document, base: Document? = nil) -> Document {
+        guard let base = base ?? self.collaborationUpdate?.document, let applied = self.collaborationAppliedDocument else {
+            return editorDocument
+        }
+        let appliedById = Dictionary(applied.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let baseById = Dictionary(base.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var result = editorDocument
+        result.blocks = editorDocument.blocks.map { block in
+            if let appliedBlock = appliedById[block.id], appliedBlock == block, let baseBlock = baseById[block.id] {
+                return baseBlock
+            }
+            return block
+        }
+        return result
+    }
+
+    /// Records a sent change as an undo step: every block that differs between the host's document
+    /// and the sent one. Consecutive changes to one block within 1.5 s join into one step, so undo
+    /// takes back a phrase rather than a word.
+    func collaborationRecordStep(from base: Document?, to document: Document) {
+        if self.collaborationSkipUndoRecording {
+            self.collaborationSkipUndoRecording = false
+            return
+        }
+        guard let base else {
+            return
+        }
+        let baseById = Dictionary(base.blocks.enumerated().map { ($0.element.id, ($0.offset, $0.element)) }, uniquingKeysWith: { first, _ in first })
+        let documentById = Dictionary(document.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var changes: [RichTextCollaborationBlockChange] = []
+        for block in document.blocks where baseById[block.id]?.1 != block {
+            changes.append(RichTextCollaborationBlockChange(id: block.id, before: baseById[block.id]?.1, after: block, index: baseById[block.id]?.0 ?? document.blocks.firstIndex(where: { $0.id == block.id }) ?? 0))
+        }
+        for (index, block) in base.blocks.enumerated() where documentById[block.id] == nil {
+            changes.append(RichTextCollaborationBlockChange(id: block.id, before: block, after: nil, index: index))
+        }
+        guard !changes.isEmpty else {
+            return
+        }
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - self.collaborationLastStepTime < 1.5, var last = self.collaborationUndoStack.last, last.count == 1, changes.count == 1, last[0].id == changes[0].id, last[0].after != nil, changes[0].before != nil {
+            last[0] = RichTextCollaborationBlockChange(id: last[0].id, before: last[0].before, after: changes[0].after, index: last[0].index)
+            self.collaborationUndoStack[self.collaborationUndoStack.count - 1] = last
+        } else {
+            self.collaborationUndoStack.append(changes)
+        }
+        self.collaborationLastStepTime = now
+        self.collaborationRedoStack.removeAll()
+    }
+
+    /// Applies one side of a step to the editor as a fresh change of the account's own, leaving the
+    /// paragraphs others hold alone. The changed blocks stay unsent until the next pass sends them.
+    private func collaborationReplay(_ step: [RichTextCollaborationBlockChange], undo: Bool) -> Bool {
+        let held = Set(self.collaborationUpdate?.participants.compactMap { $0.blockId } ?? [])
+        let current = self.editor.document
+        var document = current
+        for change in step where !held.contains(change.id) {
+            let target = undo ? change.before : change.after
+            if let target {
+                if let index = document.blocks.firstIndex(where: { $0.id == change.id }) {
+                    document.blocks[index] = target
+                } else {
+                    document.blocks.insert(target, at: min(change.index, document.blocks.count))
+                }
+            } else {
+                document.blocks.removeAll(where: { $0.id == change.id })
+            }
+        }
+        guard document != current else {
+            return false
+        }
+        let caret = RichTextCollaborationFlatAxis.blockAndLocalOffset(forFlat: self.editor.composerSelectedRange.location, in: current)
+        self.editor.document = document
+        if let caret, let restored = RichTextCollaborationFlatAxis.flatOffset(ofBlock: caret.0, localOffset: caret.1, in: document) {
+            self.editor.composerSelectedRange = NSRange(location: restored, length: 0)
+        }
+        // `collaborationAppliedDocument` is left as it was: the replayed blocks differ from it and go
+        // out with the next pass, which must not record them as a new step.
+        self.collaborationSkipUndoRecording = true
+        self.collaborationHandleChange()
+        return true
+    }
+
+    func collaborationUndo() {
+        guard let step = self.collaborationUndoStack.popLast() else {
+            return
+        }
+        if self.collaborationReplay(step, undo: true) {
+            self.collaborationRedoStack.append(step)
+        }
+        self.componentState?.updated(transition: .immediate)
+    }
+
+    func collaborationRedo() {
+        guard let step = self.collaborationRedoStack.popLast() else {
+            return
+        }
+        if self.collaborationReplay(step, undo: false) {
+            self.collaborationUndoStack.append(step)
+        }
+        self.componentState?.updated(transition: .immediate)
+    }
+
+    /// What a remote change is about to do to each block it touches, captured before the document is
+    /// replaced: the block's old lines and whether the new text merely extends the old.
+    struct CollaborationReveal {
+        let blockId: BlockID
+        let oldLineRects: [CGRect]
+        let isAppend: Bool
+    }
+
+    func collaborationRevealPrepare(from current: Document, to merged: Document, skipping dirty: Set<BlockID>) -> [CollaborationReveal] {
+        let currentById = Dictionary(current.blocks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var result: [CollaborationReveal] = []
+        for block in merged.blocks where !dirty.contains(block.id) {
+            guard currentById[block.id] != block else {
+                continue
+            }
+            var isAppend = false
+            if case let .paragraph(new) = block, case let .paragraph(old)? = currentById[block.id] {
+                isAppend = new.text.hasPrefix(old.text) && new.style == old.style
+            }
+            let oldRects = currentById[block.id] == nil ? [] : self.editor.lineRects(ofTopLevelBlock: block.id).map { self.convert($0, from: self.editor) }
+            result.append(CollaborationReveal(blockId: block.id, oldLineRects: oldRects, isAppend: isAppend))
+        }
+        return result
+    }
+
+    /// Fades the changed text in: the page colour covers what is new (the tail after the old text for
+    /// an append, the whole paragraph otherwise) and dissolves, so words arrive instead of popping.
+    func collaborationRevealRun(_ reveals: [CollaborationReveal]) {
+        guard !reveals.isEmpty else {
+            return
+        }
+        self.editor.layoutIfNeeded()
+        let pageColor = self.environment?.theme.actionSheet.opaqueItemBackgroundColor ?? .white
+        var covers: [CGRect] = []
+        for reveal in reveals {
+            let newRects = self.editor.lineRects(ofTopLevelBlock: reveal.blockId).map { self.convert($0, from: self.editor) }
+            guard !newRects.isEmpty else {
+                continue
+            }
+            if reveal.isAppend, let oldLast = reveal.oldLineRects.last {
+                for rect in newRects {
+                    if rect.midY > oldLast.maxY - 1.0 {
+                        covers.append(rect)
+                    } else if abs(rect.midY - oldLast.midY) < rect.height / 2.0, rect.maxX > oldLast.maxX {
+                        covers.append(CGRect(x: oldLast.maxX, y: rect.minY, width: rect.maxX - oldLast.maxX, height: rect.height))
+                    }
+                }
+            } else {
+                covers.append(contentsOf: newRects)
+            }
+        }
+        for rect in covers where rect.width > 0.5 {
+            let cover = UIView(frame: rect.insetBy(dx: -1.0, dy: -1.0))
+            cover.backgroundColor = pageColor
+            cover.isUserInteractionEnabled = false
+            self.insertSubview(cover, aboveSubview: self.editor)
+            UIView.animate(withDuration: 0.35, delay: 0.0, options: [.curveEaseOut], animations: {
+                cover.alpha = 0.0
+            }, completion: { _ in
+                cover.removeFromSuperview()
+            })
+        }
+    }
+
+    /// Slides a version view in over the editor, inside this sheet. The caret is let go while it is
+    /// up, so the paragraph is not held for someone reading history.
+    func presentCollaborationOverlay(_ overlay: RichTextCollaborationOverlay) {
+        guard self.collaborationOverlay == nil, let host = self.component?.collaboration else {
+            return
+        }
+        let _ = self.editor.resignEditorFirstResponder()
+        host.localCaretChanged(nil)
+        self.collaborationLastCaretBlock = nil
+        self.collaborationOverlay = overlay
+        // The sheet's own top controls (close, undo/redo) live in the navigation bar, above this view;
+        // the overlay brings its own header, so they step aside while it is up.
+        UIView.animate(withDuration: 0.2) {
+            self.component?.overNavigationContainer.alpha = 0.0
+        }
+        overlay.frame = self.bounds
+        overlay.updateLayout(size: self.bounds.size, safeInsets: UIEdgeInsets(top: self.environment?.statusBarHeight ?? 0.0, left: self.environment?.safeInsets.left ?? 0.0, bottom: self.environment?.safeInsets.bottom ?? 0.0, right: self.environment?.safeInsets.right ?? 0.0), navigationHeight: self.environment?.navigationHeight ?? 0.0)
+        self.addSubview(overlay)
+        overlay.layer.animatePosition(from: CGPoint(x: self.bounds.width, y: 0.0), to: .zero, duration: 0.3, timingFunction: kCAMediaTimingFunctionSpring, additive: true)
+        overlay.onDismiss = { [weak self, weak overlay] in
+            guard let self, let overlay else {
+                return
+            }
+            if self.collaborationOverlay === overlay {
+                self.collaborationOverlay = nil
+            }
+            UIView.animate(withDuration: 0.2) {
+                self.component?.overNavigationContainer.alpha = 1.0
+            }
+            overlay.layer.animatePosition(from: .zero, to: CGPoint(x: self.bounds.width, y: 0.0), duration: 0.3, timingFunction: kCAMediaTimingFunctionSpring, removeOnCompletion: false, additive: true, completion: { _ in
+                overlay.removeFromSuperview()
+            })
+        }
+    }
+
+    /// The header is at the scroll content's y = 0; converting from the scroll view accounts for its offset.
+    func syncCollaborationHeaderPosition() {
+        guard let headerView = self.collaborationHeaderView else {
+            return
+        }
+        let scrollView = self.editor.collaborationContentHostView
+        let contentTop = self.convert(CGPoint.zero, from: scrollView)
+        var frame = headerView.frame
+        frame.origin.y = contentTop.y
+        if frame != headerView.frame {
+            headerView.frame = frame
+        }
+    }
+
+    func syncCollaborationLocks() {
+        guard let update = self.collaborationUpdate else {
+            return
+        }
+        var live = Set<EnginePeer.Id>()
+        // Nothing is locked above the header (it scrolls with the text) or under the navigation bar.
+        var visibleTop = self.environment?.navigationHeight ?? 0.0
+        if let headerView = self.collaborationHeaderView {
+            visibleTop = max(visibleTop, self.convert(headerView.bounds, from: headerView).maxY)
+        }
+        guard let context = self.component?.context, let theme = self.environment?.theme else {
+            return
+        }
+        let pageColor = theme.actionSheet.opaqueItemBackgroundColor
+        for participant in update.participants {
+            guard let blockId = participant.blockId else {
+                continue
+            }
+            let lineRects = self.editor.lineRects(ofTopLevelBlock: blockId).map { self.convert($0, from: self.editor) }
+            guard !lineRects.isEmpty else {
+                continue
+            }
+            let lockView: RichTextCollaborationLockView
+            if let existing = self.collaborationLockViews[participant.peerId] {
+                lockView = existing
+            } else {
+                lockView = RichTextCollaborationLockView(frame: .zero)
+                self.collaborationLockViews[participant.peerId] = lockView
+                self.insertSubview(lockView, aboveSubview: self.editor)
+            }
+            let blockFrame = self.editor.frame(ofTopLevelBlock: blockId).map { self.convert($0, from: self.editor) }
+            lockView.update(context: context, theme: theme, peer: participant.peer, color: participant.color, pageColor: pageColor, blockFrame: blockFrame, lineRects: lineRects, hitRange: self.editor.frame.minX ... self.editor.frame.maxX)
+            lockView.isHidden = lockView.frame.maxY < visibleTop
+            live.insert(participant.peerId)
+
+            // The glyph snapshot follows the block's text and place; the editor may lay a change out
+            // a pass or two after it lands, so a changed key is snapshotted on a few ticks running.
+            // The key's rect is in the scroll content's space: scrolling moves the lock, not its glyphs.
+            let block = update.document.blocks.first(where: { $0.id == blockId })
+            let key = RichTextCollaborationLockSnapshotKey(block: block, rect: self.editor.collaborationContentHostView.convert(lockView.inkRect, from: self))
+            var passes = self.collaborationLockSnapshotPasses[participant.peerId] ?? 0
+            if self.collaborationLockSnapshotKeys[participant.peerId] != key {
+                self.collaborationLockSnapshotKeys[participant.peerId] = key
+                passes = 3
+            }
+            if passes > 0 {
+                self.collaborationLockSnapshotPasses[participant.peerId] = passes - 1
+                lockView.setGlyphMask(self.collaborationGlyphMask(of: lockView.inkRect, pageColor: pageColor))
+            }
+        }
+        for (peerId, lockView) in self.collaborationLockViews where !live.contains(peerId) {
+            lockView.removeFromSuperview()
+            self.collaborationLockViews.removeValue(forKey: peerId)
+            self.collaborationLockSnapshotKeys.removeValue(forKey: peerId)
+            self.collaborationLockSnapshotPasses.removeValue(forKey: peerId)
+        }
+    }
+
+    /// The editor's ink in `rect` (this view's space) as a mask image: the region is drawn on the
+    /// page colour and turned into alpha, dark ink opaque on a light page and light ink on a dark one.
+    private func collaborationGlyphMask(of rect: CGRect, pageColor: UIColor) -> CGImage? {
+        guard rect.width >= 1.0, rect.height >= 1.0 else {
+            return nil
+        }
+        let editorRect = self.editor.convert(rect, from: self)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreenScale
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
+            pageColor.setFill()
+            context.fill(CGRect(origin: .zero, size: rect.size))
+            context.cgContext.translateBy(x: -editorRect.minX, y: -editorRect.minY)
+            self.editor.layer.render(in: context.cgContext)
+        }
+        guard let cgImage = image.cgImage else {
+            return nil
+        }
+        var ciImage = CIImage(cgImage: cgImage)
+        if pageColor.lightness > 0.5 {
+            ciImage = ciImage.applyingFilter("CIColorInvert")
+        }
+        ciImage = ciImage.applyingFilter("CIMaskToAlpha")
+        return collaborationGlyphMaskContext.createCGImage(ciImage, from: ciImage.extent)
+    }
+}
+
+struct RichTextCollaborationLockSnapshotKey: Equatable {
+    let block: Block?
+    let rect: CGRect
+}
+
+private let collaborationGlyphMaskContext = CIContext(options: nil)

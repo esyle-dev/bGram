@@ -15,6 +15,11 @@ final class SelectionHighlightView: UIView {
         backgroundColor = .clear
         isUserInteractionEnabled = false
         isOpaque = false
+        // The overlay is sized to the whole canvas, which grows and shrinks with the document and the
+        // keyboard. Under the default `.scaleToFill` a size change STRETCHED the last drawn wash until the
+        // next selection change repainted it: a blue block sliding down over empty space when the keyboard
+        // closed, or a stale fragment left behind after Copy. `.redraw` repaints at the new size instead.
+        contentMode = .redraw
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
     override func draw(_ rect: CGRect) {
@@ -36,6 +41,8 @@ final class CellSelectionView: UIView {
         backgroundColor = .clear
         isUserInteractionEnabled = false
         isOpaque = false
+        // As `SelectionHighlightView`: repaint at a new size rather than stretch the old wash.
+        contentMode = .redraw
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
     override func draw(_ rect: CGRect) {

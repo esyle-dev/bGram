@@ -1103,7 +1103,8 @@ public class ChatMessageRichDataBubbleContentNode: ChatMessageBubbleContentNode 
                     statusSuggestedWidthAndContinue = statusLayout(ChatMessageDateAndStatusNode.Arguments(
                         context: item.context,
                         presentationData: item.presentationData,
-                        edited: edited && !item.presentationData.isPreview,
+                        // A shared message is edited by design; its title row says when, so no "edited" here.
+                        edited: edited && !item.presentationData.isPreview && !item.message.attributes.contains(where: { $0 is SharedMessageAttribute }),
                         impressionCount: !item.presentationData.isPreview ? viewCount : nil,
                         dateText: dateText,
                         type: statusType,

@@ -1844,8 +1844,12 @@ open class InteractiveTextNode: ASDisplayNode, TextNodeProtocol, UIGestureRecogn
         }
         
         var size = CGSize()
-        let isTruncated = false
-        
+        // The layout reports a cut, which used to be a constant `false` nobody read; the shared
+        // message's "Show more" is decided from it.
+        let isTruncated = calculatedSegments.contains { segment in
+            return segment.lines.contains { $0.isTruncated }
+        }
+
         for segment in calculatedSegments {
             if let titleLine = segment.titleLine {
                 size.width = max(size.width, titleLine.frame.origin.x + titleLine.frame.width + segment.additionalWidth)

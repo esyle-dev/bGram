@@ -58,6 +58,8 @@ import ChatSwipeToReplyRecognizer
 import ChatMessageReactionsFooterContentNode
 import ChatMessageInstantVideoBubbleContentNode
 import ChatMessageCommentFooterContentNode
+import ChatMessageSharedTitleBubbleContentNode
+import ChatMessageSharedFooterBubbleContentNode
 import ChatMessageActionBubbleContentNode
 import ChatMessageContactBubbleContentNode
 import ChatMessageEventLogPreviousDescriptionContentNode
@@ -375,6 +377,9 @@ private func contentNodeMessagesAndClassesForItem(_ item: ChatMessageItem) -> ([
                         }
                         result.insert((message, ChatMessageTextBubbleContentNode.self, itemAttributes, BubbleItemAttributes(isAttachment: false, neighborType: .text, neighborSpacing: isFile ? .condensed : .default)), at: targetIndex)
                     } else {
+                        if message.attributes.contains(where: { $0 is SharedMessageAttribute }) {
+                            result.append((message, ChatMessageSharedTitleBubbleContentNode.self, itemAttributes, BubbleItemAttributes(isAttachment: false, neighborType: .text, neighborSpacing: .default)))
+                        }
                         result.append((message, ChatMessageTextBubbleContentNode.self, itemAttributes, BubbleItemAttributes(isAttachment: false, neighborType: .text, neighborSpacing: isFile ? .condensed : .default)))
                         needReactions = false
                     }
@@ -412,6 +417,10 @@ private func contentNodeMessagesAndClassesForItem(_ item: ChatMessageItem) -> ([
         }
         
         if richText != nil && !skipText {
+            // A shared message saved with rich blocks has no plain text, so its title lands here.
+            if message.attributes.contains(where: { $0 is SharedMessageAttribute }) && !result.contains(where: { $0.1 == ChatMessageSharedTitleBubbleContentNode.self }) {
+                result.append((message, ChatMessageSharedTitleBubbleContentNode.self, itemAttributes, BubbleItemAttributes(isAttachment: false, neighborType: .text, neighborSpacing: .default)))
+            }
             result.append((message, ChatMessageRichDataBubbleContentNode.self, itemAttributes, BubbleItemAttributes(isAttachment: false, neighborType: .text, neighborSpacing: .default)))
             needReactions = false
         }
@@ -478,6 +487,9 @@ private func contentNodeMessagesAndClassesForItem(_ item: ChatMessageItem) -> ([
     }
     
     if !isAction && !hasSeparateCommentsButton && !Namespaces.Message.allNonRegular.contains(firstMessage.id.namespace) && !hideAllAdditionalInfo {
+        if firstMessage.attributes.contains(where: { $0 is SharedMessageAttribute }) && (result.last?.1 == ChatMessageTextBubbleContentNode.self || result.last?.1 == ChatMessageRichDataBubbleContentNode.self) {
+            result.append((firstMessage, ChatMessageSharedFooterBubbleContentNode.self, ChatMessageEntryAttributes(), BubbleItemAttributes(isAttachment: true, neighborType: .footer, neighborSpacing: .default)))
+        }
         if hasCommentButton(item: item) {
             result.append((firstMessage, ChatMessageCommentFooterContentNode.self, ChatMessageEntryAttributes(), BubbleItemAttributes(isAttachment: true, neighborType: .footer, neighborSpacing: .default)))
         }
@@ -739,6 +751,12 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
     
     private var contentContainersWrapperNode: ASDisplayNode
     private var contentContainers: [ContentContainer] = []
+    /// The photo of an album whose menu is open (the message it belongs to), when there is one.
+    private var contextFocusedPhotoStableId: UInt32?
+    /// The glass layers over the photos of the album while the menu of one photo of it is open.
+    private var albumPhotoOverlays: [UInt32: AlbumPhotoGlassOverlay] = [:]
+    /// While the actions of the whole album are shown, every photo of it is active.
+    private var contextAlbumAllActive: Bool = false
     public private(set) var contentNodes: [ChatMessageBubbleContentNode] = [] {
         didSet {
             for case let contentNode as ChatMessageTransferBubbleContentNode in oldValue {
@@ -939,6 +957,12 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                             }
                         }
                     }
+                    // The photo of an album that the menu is about; the other photos of the album are dimmed while the menu is open.
+                    if !openContextMenu.selectAll, case let .group(messages) = item.content, messages.count > 1, tapMessage.groupingKey != nil, tapMessage.effectiveMedia.contains(where: { $0 is TelegramMediaImage }) {
+                        strongSelf.contextFocusedPhotoStableId = tapMessage.stableId
+                    } else {
+                        strongSelf.contextFocusedPhotoStableId = nil
+                    }
                     item.controllerInteraction.openMessageContextMenu(tapMessage, openContextMenu.selectAll, strongSelf, openContextMenu.subFrame, gesture, nil)
                 }
             }
@@ -993,13 +1017,14 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
             self?.accessibilityElementDidBecomeFocused()
         }
         
-        self.mainContextSourceNode.willUpdateIsExtractedToContextPreview = { [weak self] isExtractedToContextPreview, _ in
+        self.mainContextSourceNode.willUpdateIsExtractedToContextPreview = { [weak self] isExtractedToContextPreview, transition in
             guard let self, let _ = self.item else {
                 return
             }
             for contentNode in self.contentNodes {
                 contentNode.willUpdateIsExtractedToContextPreview(isExtractedToContextPreview)
             }
+            self.updateAlbumPhotoFocus(isExtractedToContextPreview: isExtractedToContextPreview, transition: transition)
         }
         self.mainContextSourceNode.isExtractedToContextPreviewUpdated = { [weak self] isExtractedToContextPreview in
             guard let self else {
@@ -1016,6 +1041,20 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
             }
             
             if !isExtractedToContextPreview {
+                // The menu is gone: nothing is dimmed any more, whatever happened to the animation.
+                self.contextFocusedPhotoStableId = nil
+                self.contextAlbumAllActive = false
+                for contentNode in self.contentNodes where contentNode is ChatMessageMediaBubbleContentNode {
+                    contentNode.alpha = 1.0
+                    contentNode.layer.sublayerTransform = CATransform3DIdentity
+                    contentNode.layer.cornerRadius = 0.0
+                    contentNode.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+                    contentNode.clipsToBounds = false
+                }
+                for overlay in self.albumPhotoOverlays.values {
+                    overlay.removeFromSuperview()
+                }
+                self.albumPhotoOverlays.removeAll()
                 if let item = self.item {
                     item.controllerInteraction.forceUpdateWarpContents()
                 }
@@ -7547,6 +7586,126 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
         }
     }
     
+    /// The photo of this album that is under a point (in window coordinates), when there is one; the album may be lifted out of the chat
+    /// by a context menu at the time, and the point is where the finger is.
+    public func albumPhotoMessage(atWindowPoint point: CGPoint) -> Message? {
+        for contentNode in self.contentNodes where contentNode is ChatMessageMediaBubbleContentNode {
+            guard let message = contentNode.item?.message, message.effectiveMedia.contains(where: { $0 is TelegramMediaImage }) else {
+                continue
+            }
+            if contentNode.view.convert(contentNode.bounds, to: nil).contains(point) {
+                // Not when something else (the menu) is over that part of the photo.
+                if let window = self.view.window, let hitView = window.hitTest(point, with: nil) {
+                    var currentView: UIView? = hitView
+                    while let view = currentView {
+                        if view.asyncdisplaykit_node is ContextControllerActionsStackNode {
+                            return nil
+                        }
+                        currentView = view.superview
+                    }
+                }
+                return message
+            }
+        }
+        return nil
+    }
+    
+    /// Makes every photo of the album active (the actions of the whole album are shown), or the open one alone again.
+    public func setAlbumPhotosAllActive(_ active: Bool) {
+        guard self.contextFocusedPhotoStableId != nil, self.contextAlbumAllActive != active else {
+            return
+        }
+        self.contextAlbumAllActive = active
+        self.updateAlbumPhotoFocus(isExtractedToContextPreview: true, transition: .animated(duration: 0.3, curve: .easeInOut))
+    }
+    
+    /// The views of the photos of this album, so that a touch on one of them can be watched where it lands.
+    public func albumPhotoTileViews() -> [UIView] {
+        return self.contentNodes.filter { $0 is ChatMessageMediaBubbleContentNode }.map { $0.view }
+    }
+    
+    /// Moves the highlight of an open menu to another photo of the album.
+    public func focusAlbumPhoto(stableId: UInt32) {
+        self.contextFocusedPhotoStableId = stableId
+        self.updateAlbumPhotoFocus(isExtractedToContextPreview: true, transition: .animated(duration: 0.2, curve: .easeInOut))
+    }
+    
+    /// While the menu of one photo of an album is open, the other photos of the album are a little transparent, so the photo it is about
+    /// stands out.
+    private func updateAlbumPhotoFocus(isExtractedToContextPreview: Bool, transition: ContainedViewLayoutTransition) {
+        guard let focusedStableId = self.contextFocusedPhotoStableId else {
+            return
+        }
+        // Where the photos are, to give the veil over each the same rounded corners as the album has: only the corners of the album itself.
+        var albumFrame = CGRect.null
+        for contentNode in self.contentNodes where contentNode is ChatMessageMediaBubbleContentNode {
+            albumFrame = albumFrame.union(contentNode.view.convert(contentNode.bounds, to: self.mainContextSourceNode.contentNode.view))
+        }
+        let hasContentBelow = self.contentNodes.contains(where: { !($0 is ChatMessageMediaBubbleContentNode) })
+        let cornerRadius: CGFloat = self.item?.presentationData.chatBubbleCorners.mainRadius ?? 16.0
+        
+        for contentNode in self.contentNodes where contentNode is ChatMessageMediaBubbleContentNode {
+            guard let stableId = contentNode.item?.message.stableId else {
+                continue
+            }
+            let isFocused = isExtractedToContextPreview && stableId == focusedStableId
+            let fadeTransition: ContainedViewLayoutTransition = transition.isAnimated ? .animated(duration: isExtractedToContextPreview ? 0.3 : 0.2, curve: .easeInOut) : .immediate
+            
+            // The photos that are not open are under a veil of glass.
+            let overlay: AlbumPhotoGlassOverlay
+            if let current = self.albumPhotoOverlays[stableId] {
+                overlay = current
+            } else {
+                overlay = AlbumPhotoGlassOverlay()
+                contentNode.view.addSubview(overlay)
+                self.albumPhotoOverlays[stableId] = overlay
+            }
+            overlay.frame = contentNode.bounds
+            let tileFrame = contentNode.view.convert(contentNode.bounds, to: self.mainContextSourceNode.contentNode.view)
+            var maskedCorners: CACornerMask = []
+            let tolerance: CGFloat = 1.0
+            let atLeft = abs(tileFrame.minX - albumFrame.minX) < tolerance
+            let atRight = abs(tileFrame.maxX - albumFrame.maxX) < tolerance
+            let atTop = abs(tileFrame.minY - albumFrame.minY) < tolerance
+            let atBottom = abs(tileFrame.maxY - albumFrame.maxY) < tolerance && !hasContentBelow
+            if atLeft && atTop {
+                maskedCorners.insert(.layerMinXMinYCorner)
+            }
+            if atRight && atTop {
+                maskedCorners.insert(.layerMaxXMinYCorner)
+            }
+            if atLeft && atBottom {
+                maskedCorners.insert(.layerMinXMaxYCorner)
+            }
+            if atRight && atBottom {
+                maskedCorners.insert(.layerMaxXMaxYCorner)
+            }
+            overlay.update(cornerRadius: cornerRadius, maskedCorners: maskedCorners)
+            fadeTransition.updateAlpha(layer: overlay.veil.layer, alpha: isExtractedToContextPreview && !isFocused && !self.contextAlbumAllActive ? 1.0 : 0.0, beginWithCurrentState: true)
+            
+            // The open photo is zoomed a little inside its own frame. The photo is cut off at the frame, with the corners the album has,
+            // so the grid and the outline of the album do not change; and it goes back the same way, from wherever it is when the
+            // finger moves on, so that nothing jumps.
+            if isExtractedToContextPreview {
+                contentNode.clipsToBounds = true
+                contentNode.layer.cornerRadius = maskedCorners.isEmpty ? 0.0 : cornerRadius
+                contentNode.layer.maskedCorners = maskedCorners.isEmpty ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner] : maskedCorners
+            }
+            let zoomTransition: ContainedViewLayoutTransition = transition.isAnimated ? .animated(duration: 0.45, curve: .spring) : .immediate
+            zoomTransition.updateSublayerTransformScale(node: contentNode, scale: isFocused && !self.contextAlbumAllActive ? 1.06 : 1.0, beginWithCurrentState: true)
+        }
+    }
+    
+    /// The view and the rectangle of one photo of this album, which the card of that photo opens from and returns to.
+    public func albumPhotoSource(stableId: UInt32) -> (UIView, CGRect)? {
+        for contentNode in self.contentNodes where contentNode is ChatMessageMediaBubbleContentNode {
+            if contentNode.item?.message.stableId == stableId {
+                return (contentNode.view, contentNode.bounds)
+            }
+        }
+        return nil
+    }
+    
     override public func getMessageContextSourceNode(stableId: UInt32?) -> ContextExtractedContentContainingNode? {
         if self.contentContainers.count > 1 {
             return self.contentContainers.first(where: { $0.contentMessageStableId == stableId })?.sourceNode ?? self.mainContextSourceNode
@@ -8110,5 +8269,39 @@ public final class NameNavigateButton: HighlightableButton {
             titleTopicIconView.view?.removeFromSuperview()
             self.titleTopicIconComponent = nil
         }
+    }
+}
+
+/// The glass over one photo of an album: a light veil when the photo is not the open one.
+private final class AlbumPhotoGlassOverlay: UIView {
+    let veil = UIView()
+    
+    init() {
+        super.init(frame: CGRect())
+        self.isUserInteractionEnabled = false
+        self.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        
+        self.veil.isUserInteractionEnabled = false
+        self.veil.backgroundColor = UIColor(white: 1.0, alpha: 0.45)
+        self.veil.layer.borderWidth = 0.5
+        self.veil.layer.borderColor = UIColor(white: 1.0, alpha: 0.5).cgColor
+        self.veil.alpha = 0.0
+        self.veil.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        self.addSubview(self.veil)
+    }
+    
+    required init?(coder: NSCoder) {
+        preconditionFailure()
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        self.veil.frame = self.bounds
+    }
+    
+    func update(cornerRadius: CGFloat, maskedCorners: CACornerMask) {
+        self.veil.layer.cornerRadius = maskedCorners.isEmpty ? 0.0 : cornerRadius
+        self.veil.layer.maskedCorners = maskedCorners
+        self.veil.clipsToBounds = true
     }
 }

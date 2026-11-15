@@ -50,6 +50,8 @@ final class MediaPickerInteraction {
     let editingState: TGMediaEditingContext
     var hiddenMediaId: String?
     var displayLivePhotoIcon: Bool = false
+    /// How many pictures can be added to the album that is being edited: when that many are chosen, the others cannot be.
+    var albumAddCapacity: Int?
         
     init(
         downloadManager: AssetDownloadManager,
@@ -253,6 +255,8 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
     private let peer: EnginePeer?
     private let isScheduledMessages: Bool
     private let isActionButtonDone: Bool
+    /// The title to show in place of the usual one for the pictures that are given to the picker ("9 selected").
+    private let customTitle: String?
     private let threadTitle: String?
     private let chatLocation: ChatLocation?
     private let bannedSendPhotos: (Int32, Bool)?
@@ -261,7 +265,59 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
     private let selectionLimit: Int?
     private let canBoostToUnrestrict: Bool
     fileprivate let paidMediaAllowed: Bool
-    fileprivate let subject: Subject
+    fileprivate var subject: Subject
+    /// The title of the button that adds the chosen pictures to an album that is being edited; the picker then has that button instead of
+    /// the caption field, and no button with the number of the chosen pictures.
+    private let albumAddTitle: String?
+    /// How many more pictures the album can take (it holds 10); the button is not active when more are chosen.
+    private let albumAddCapacity: Int?
+    /// The button was pressed: the pictures that are chosen.
+    /// Called with the chosen pictures and whether they are to be added in high quality.
+    public var albumAddHandler: (([PHAsset], Bool) -> Void)?
+    /// The button that applies the changes of the album that is being edited was pressed.
+    public var albumEditApplied: (() -> Void)?
+    /// Something of the album that is being edited has changed: the text, its place, the pictures or the audio file.
+    public var albumEditChanged: (() -> Void)?
+    /// A picture of the album that is being edited was ticked or unticked.
+    public var albumEditSelectionChanged: (() -> Void)?
+    /// The close button of the window that edits an album was pressed: the owner asks whether to throw the changes away.
+    public var albumEditCloseRequested: (() -> Void)?
+    
+    /// How many pictures the album that is being edited has places for: what it had. An album cannot take more pictures than it has
+    /// messages, so a picture can be added only in the place of one that was taken away.
+    public var albumEditSlotCount: Int?
+    
+    /// The line written over the album in place of "Message Preview": how many pictures it has places for, or how many can be added.
+    fileprivate var albumSlotsText: String? {
+        guard self.isEditingAlbum, let slots = self.albumEditSlotCount else {
+            return nil
+        }
+        let free = slots - self.albumEditIdentifiers().count
+        if free > 0 {
+            return self.presentationData.strings.Attachment_AlbumSlotsFree(Int32(free))
+        } else {
+            return self.presentationData.strings.Attachment_AlbumSlotsFull(Int32(slots))
+        }
+    }
+    fileprivate var albumAudioValue: MediaPickerAlbumAudio?
+    fileprivate var albumCaptionValue: MediaPickerAlbumCaption?
+    
+    /// The text of the album that is being edited, as it is in the caption field now, and whether it is above the pictures.
+    public var albumCaptionState: (text: NSAttributedString, isAbove: Bool) {
+        return (self.albumCaptionValue?.text ?? NSAttributedString(), self.albumCaptionValue?.isAbove ?? false)
+    }
+    
+    fileprivate func albumCaptionUpdated() {
+        self.controllerNode.updateAlbumCaption()
+        self.albumEditChanged?()
+    }
+    
+    fileprivate var isEditingAlbum: Bool {
+        if self.customTitle != nil, case .media = self.subject {
+            return true
+        }
+        return false
+    }
     fileprivate let forCollage: Bool
     private let saveEditedPhotos: Bool
     
@@ -1010,6 +1066,18 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         }
         
         fileprivate var resetOnUpdate = false
+        func updateMedia(_ media: [Subject.Media]) {
+            self.updateState(.media(media))
+        }
+        
+        func updateAlbumAudio() {
+            self.selectionNode?.albumAudio = self.controller?.albumAudioValue
+        }
+        
+        func updateAlbumCaption() {
+            self.selectionNode?.albumCaption = self.controller?.albumCaptionValue
+        }
+        
         fileprivate func updateState(_ state: State) {
             guard let controller = self.controller, let interaction = controller.interaction else {
                 return
@@ -1213,6 +1281,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                 }
             }
             self.selectionNode?.updateSelectionState()
+            self.selectionNode?.albumSlotsText = self.controller?.albumSlotsText
             
             let count = Int32(self.controller?.interaction?.selectionState?.count() ?? 0)
             self.controller?.updateSelectionState(count: count)
@@ -1256,6 +1325,12 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                 selectionNode.layer.allowsGroupOpacity = true
                 selectionNode.isUserInteractionEnabled = false
                 selectionNode.interaction = self.controller?.interaction
+                selectionNode.albumAudio = controller.albumAudioValue
+                selectionNode.albumCaption = controller.albumCaptionValue
+                selectionNode.albumSlotsText = controller.albumSlotsText
+                selectionNode.albumAudioRemoved = { [weak controller] in
+                    controller?.setAlbumAudio(title: nil, subtitle: nil)
+                }
                 selectionNode.getTransitionView = { [weak self] identifier in
                     if let strongSelf = self {
                         var node: MediaPickerGridItemNode?
@@ -1396,15 +1471,15 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             let index = reversed ? fetchResult.count - index - 1 : index
             
             var hasTimer = false
-            if controller.chatLocation?.peerId != controller.context.account.peerId && controller.chatLocation?.peerId?.namespace == Namespaces.Peer.CloudUser {
+            if controller.albumAddTitle == nil && !controller.isEditingAlbum && controller.chatLocation?.peerId != controller.context.account.peerId && controller.chatLocation?.peerId?.namespace == Namespaces.Peer.CloudUser {
                 hasTimer = true
             }
             
-            let hasSchedule = true
+            let hasSchedule = controller.albumAddTitle == nil
             
             self.openingMedia = true
             
-            self.currentGalleryController = presentLegacyMediaPickerGallery(context: controller.context, peer: controller.peer, threadTitle: controller.threadTitle, chatLocation: controller.chatLocation, isScheduledMessages: controller.isScheduledMessages, isActionButtonDone: controller.isActionButtonDone, presentationData: self.presentationData, source: .fetchResult(fetchResult: fetchResult, index: index, reversed: reversed), immediateThumbnail: immediateThumbnail, selectionContext: interaction.selectionState?.selectionLimit == 1 ? nil : interaction.selectionState, editingContext: interaction.editingState, asFile: controller.subject.asFile, hasSilentPosting: true, hasSchedule: hasSchedule, hasTimer: hasTimer, updateHiddenMedia: { [weak self] id in
+            self.currentGalleryController = presentLegacyMediaPickerGallery(context: controller.context, peer: controller.peer, threadTitle: controller.threadTitle, chatLocation: controller.chatLocation, isScheduledMessages: controller.isScheduledMessages, isActionButtonDone: controller.isActionButtonDone, isAlbumAdding: controller.albumAddTitle != nil || controller.isEditingAlbum, hidesSelectionCounter: controller.isEditingAlbum, presentationData: self.presentationData, source: .fetchResult(fetchResult: fetchResult, index: index, reversed: reversed), immediateThumbnail: immediateThumbnail, selectionContext: interaction.selectionState?.selectionLimit == 1 ? nil : interaction.selectionState, editingContext: interaction.editingState, asFile: controller.subject.asFile, hasSilentPosting: controller.albumAddTitle == nil && !controller.isEditingAlbum, hasSchedule: hasSchedule && !controller.isEditingAlbum, hasTimer: hasTimer, updateHiddenMedia: { [weak self] id in
                 self?.hiddenMediaId.set(.single(id))
             }, initialLayout: layout, transitionHostView: { [weak self] in
                 return self?.gridNode.view
@@ -1431,6 +1506,10 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                 self?.hasGallery = false
                 self?.updateIsCameraActive()
             }, dismissAll: { [weak self] in
+                // The window that edits an album stays: only the picture opened in full screen goes away.
+                if self?.controller?.isEditingAlbum == true {
+                    return
+                }
                 self?.controller?.dismissAll()
             }, editCover: { [weak self] dimensions, completion in
                 self?.controller?.editCover(dimensions, completion)
@@ -1446,12 +1525,12 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             }
             
             var hasTimer = false
-            if controller.chatLocation?.peerId != controller.context.account.peerId && controller.chatLocation?.peerId?.namespace == Namespaces.Peer.CloudUser {
+            if controller.albumAddTitle == nil && !controller.isEditingAlbum && controller.chatLocation?.peerId != controller.context.account.peerId && controller.chatLocation?.peerId?.namespace == Namespaces.Peer.CloudUser {
                 hasTimer = true
             }
             
             self.openingMedia = true
-            self.currentGalleryController = presentLegacyMediaPickerGallery(context: controller.context, peer: controller.peer, threadTitle: controller.threadTitle, chatLocation: controller.chatLocation, isScheduledMessages: controller.isScheduledMessages, presentationData: self.presentationData, source: .selection(item: item), immediateThumbnail: immediateThumbnail, selectionContext: interaction.selectionState, editingContext: interaction.editingState, asFile: controller.subject.asFile, hasSilentPosting: true, hasSchedule: true, hasTimer: hasTimer, updateHiddenMedia: { [weak self] id in
+            self.currentGalleryController = presentLegacyMediaPickerGallery(context: controller.context, peer: controller.peer, threadTitle: controller.threadTitle, chatLocation: controller.chatLocation, isScheduledMessages: controller.isScheduledMessages, isActionButtonDone: controller.isActionButtonDone, isAlbumAdding: controller.albumAddTitle != nil || controller.isEditingAlbum, hidesSelectionCounter: controller.isEditingAlbum, presentationData: self.presentationData, source: .selection(item: item), immediateThumbnail: immediateThumbnail, selectionContext: interaction.selectionState, editingContext: interaction.editingState, asFile: controller.subject.asFile, hasSilentPosting: controller.albumAddTitle == nil && !controller.isEditingAlbum, hasSchedule: controller.albumAddTitle == nil && !controller.isEditingAlbum, hasTimer: hasTimer, updateHiddenMedia: { [weak self] id in
                 self?.hiddenMediaId.set(.single(id))
             }, initialLayout: layout, transitionHostView: { [weak self] in
                 return self?.selectionNode?.view
@@ -1472,6 +1551,10 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                 self?.hasGallery = false
                 self?.updateIsCameraActive()
             }, dismissAll: { [weak self] in
+                // The window that edits an album stays: only the picture opened in full screen goes away.
+                if self?.controller?.isEditingAlbum == true {
+                    return
+                }
                 self?.controller?.dismissAll()
             }, editCover: { _, _ in
                 
@@ -2084,6 +2167,9 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         paidMediaAllowed: Bool = false,
         subject: Subject,
         forCollage: Bool = false,
+        title: String? = nil,
+        albumAddTitle: String? = nil,
+        albumAddCapacity: Int? = nil,
         sendPaidMessageStars: Int64? = nil,
         editingContext: TGMediaEditingContext? = nil,
         selectionContext: TGMediaSelectionContext? = nil,
@@ -2104,7 +2190,10 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         self.threadTitle = threadTitle
         self.chatLocation = chatLocation
         self.isScheduledMessages = isScheduledMessages
-        self.isActionButtonDone = isActionButtonDone
+        self.isActionButtonDone = isActionButtonDone || albumAddTitle != nil
+        self.customTitle = title
+        self.albumAddTitle = albumAddTitle
+        self.albumAddCapacity = albumAddCapacity
         self.bannedSendPhotos = bannedSendPhotos
         self.bannedSendVideos = bannedSendVideos
         self.enableMultiselection = enableMultiselection
@@ -2312,6 +2401,10 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         },
         toggleSelection: { [weak self] item, value, suggestUndo in
             if let self = self, let selectionState = self.interaction?.selectionState {
+                // A picture is added only in a free place of the album: when they are all chosen, no other picture can be.
+                if value, let capacity = self.albumAddCapacity, Int(selectionState.count()) >= capacity, !selectionState.isIdentifierSelected(item.uniqueIdentifier) {
+                    return false
+                }
                 if let _ = item as? TGMediaPickerGalleryPhotoItem {
                     if self.bannedSendPhotos != nil {
                         self.present(textAlertController(context: self.context, updatedPresentationData: self.updatedPresentationData, title: nil, text: self.presentationData.strings.Chat_SendNotAllowedPhoto, actions: [TextAlertAction(type: .defaultAction, title: self.presentationData.strings.Common_OK, action: {})]), in: .window(.root))
@@ -2362,6 +2455,23 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             }
         }, sendSelected: { [weak self] currentItem, silently, scheduleTime, animated, parameters, completion in
             if let strongSelf = self, let selectionState = strongSelf.interaction?.selectionState, !strongSelf.isDismissing {
+                // The picture opened in full screen is added to the album that is being edited, not sent.
+                if strongSelf.albumAddHandler != nil {
+                    if let currentItem = currentItem, !selectionState.isIdentifierSelected(currentItem.uniqueIdentifier) {
+                        if let capacity = strongSelf.albumAddCapacity, Int(selectionState.count()) >= capacity {
+                            return
+                        }
+                        selectionState.setItem(currentItem, selected: true)
+                    }
+                    strongSelf.mainButtonPressed()
+                    completion()
+                    return
+                }
+                // In the window that edits an album the button of the picture opened in full screen only goes back to the pictures.
+                if strongSelf.isEditingAlbum {
+                    completion()
+                    return
+                }
                 strongSelf.isDismissing = true
                 if let currentItem = currentItem {
                     selectionState.setItem(currentItem, selected: true)
@@ -2379,6 +2489,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                 strongSelf.controllerNode.dismissInput()
             }
         }, selectionState: selectionContext, editingState: editingContext)
+        self.interaction?.albumAddCapacity = albumAddCapacity
         
         var displayLivePhotoIcon = false
         if case let .assets(_, mode) = subject, case .default = mode {
@@ -2405,6 +2516,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         }
         
         self.updateSelectionState(count: Int32(selectionContext.count()))
+        self.updateAlbumAddButton()
         
         if case let .assets(_, mode) = self.subject, case .createSticker = mode {
             let _ = cutoutAvailability(context: context).startStandalone()
@@ -2652,9 +2764,25 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         })
     }
     
+    /// The button of the window that adds pictures to an album: there from the start, and it can be pressed when a picture is chosen.
+    fileprivate func updateAlbumAddButton() {
+        guard let albumAddTitle = self.albumAddTitle else {
+            return
+        }
+        var exceedsCapacity = false
+        if let albumAddCapacity = self.albumAddCapacity, Int(self.selectionCount) > albumAddCapacity {
+            exceedsCapacity = true
+        }
+        let hasSelection = self.selectionCount > 0
+        self.mainButtonStatePromise.set(.single(AttachmentMainButtonState(text: exceedsCapacity ? self.presentationData.strings.Attachment_AlbumLimit : albumAddTitle, badge: nil, font: .bold, background: .color(self.presentationData.theme.actionSheet.controlAccentColor), textColor: self.presentationData.theme.list.itemCheckColors.foregroundColor, isVisible: true, progress: .none, isEnabled: hasSelection && !exceedsCapacity, hasShimmer: false, position: .top, hidesPanelBackground: true)))
+    }
+    
     fileprivate var selectionCount: Int32 = 0
     fileprivate func updateSelectionState(count: Int32, transition: ContainedViewLayoutTransition = .animated(duration: 0.25, curve: .easeInOut)) {
         self.selectionCount = count
+        if self.isEditingAlbum {
+            self.albumEditSelectionChanged?()
+        }
         guard let layout = self.validLayout else {
             return
         }
@@ -2666,7 +2794,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                 moreIsVisible = true
             }
         } else if case let .media(media) = self.subject {
-            self.titleView.title = media.count == 1 ? self.presentationData.strings.Attachment_Pasteboard : self.presentationData.strings.Attachment_SelectedMedia(count)
+            self.titleView.title = self.customTitle ?? (media.count == 1 ? self.presentationData.strings.Attachment_Pasteboard : self.presentationData.strings.Attachment_SelectedMedia(count))
             self.titleView.segmentsHidden = true
             moreIsVisible = true
         } else {
@@ -2693,7 +2821,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             let navigationHeight = navigationLayout(layout: layout).navigationFrame.height
             self.selectedButtonNode.frame = CGRect(origin: CGPoint(x: 16.0 + 44.0 + 12.0, y: self._hasGlassStyle ? 16.0 : floorToScreenPixels((navigationHeight - selectedSize.height) / 2.0) + 1.0), size: selectedSize)
             
-            let isSelectionButtonVisible = count > 0 && self.controllerNode.currentDisplayMode == .all
+            let isSelectionButtonVisible = count > 0 && self.controllerNode.currentDisplayMode == .all && self.albumAddTitle == nil
             transition.updateAlpha(node: self.selectedButtonNode, alpha: isSelectionButtonVisible ? 1.0 : 0.0)
             transition.updateTransformScale(node: self.selectedButtonNode, scale: isSelectionButtonVisible ? 1.0 : 0.01)
             
@@ -2745,8 +2873,21 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
             )
         ]
         var rightControlItems: [GlassControlGroupComponent.Item] = []
+        var rightControlBackground: GlassControlGroupComponent.Background = .panel
+        if self.customTitle != nil, case .media = self.subject {
+            rightControlBackground = .activeTint(inset: false)
+        }
         if moreIsVisible, case .glass = self.style {
-            if self.hasSelectButton {
+            if self.customTitle != nil, case .media = self.subject {
+                // The album that is being edited: the button that applies the changes.
+                rightControlItems.append(GlassControlGroupComponent.Item(
+                    id: AnyHashable("apply"),
+                    content: .icon("Navigation/Done"),
+                    action: { [weak self] in
+                        self?.albumEditApplied?()
+                    }
+                ))
+            } else if self.hasSelectButton {
                 rightControlItems.append(GlassControlGroupComponent.Item(
                     id: AnyHashable("select"),
                     content: .text(self.presentationData.strings.Common_Select),
@@ -2838,7 +2979,7 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                     centralItem: nil,
                     rightItem: rightControlItems.isEmpty ? nil : GlassControlPanelComponent.Item(
                         items: rightControlItems,
-                        background: .panel
+                        background: rightControlBackground
                     ),
                     centerAlignmentIfPossible: true,
                     isDark: self.presentationData.theme.overallDarkAppearance
@@ -2870,6 +3011,8 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                 self.mainButtonStatePromise.set(.single(nil))
                 self.secondaryButtonStatePromise.set(.single(nil))
             }
+        } else if self.albumAddTitle != nil {
+            self.updateAlbumAddButton()
         } else if self.mainButtonHidesOnSelection, let initialMainButtonState = self.initialMainButtonState {
             self.mainButtonStatePromise.set(.single(self.selectionCount > 0 ? nil : initialMainButtonState))
         }
@@ -2905,7 +3048,78 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
     }
     
     func mainButtonPressed() {
+        if let albumAddHandler = self.albumAddHandler {
+            var assets: [PHAsset] = []
+            if let selectedItems = self.interaction?.selectionState?.selectedItems() {
+                for item in selectedItems {
+                    if let item = item as? TGMediaAsset, let asset = item.backingAsset {
+                        assets.append(asset)
+                    }
+                }
+            }
+            if assets.isEmpty {
+                return
+            }
+            albumAddHandler(assets, self.interaction?.editingState.isHighQualityPhoto() ?? false)
+            return
+        }
         self.mainButtonAction?()
+    }
+    
+    /// Adds pictures to the ones that the picker was given (the photos of an album that is being edited).
+    public func addMedia(_ items: [Subject.Media]) {
+        guard case let .media(current) = self.subject else {
+            return
+        }
+        let updated = current + items
+        self.subject = .media(updated)
+        if let selectionState = self.interaction?.selectionState {
+            for item in items {
+                selectionState.setItem(item.asset, selected: true)
+            }
+        }
+        self.controllerNode.updateMedia(updated)
+        self.albumEditChanged?()
+    }
+    
+    /// How many pictures the picker has been given (the photos of the album that is being edited, and the ones added to them).
+    public var albumMediaCount: Int {
+        if case let .media(media) = self.subject {
+            return media.count
+        }
+        return 0
+    }
+    
+    /// The identifiers of the pictures of the album that is being edited, in the order they are in now.
+    public func albumEditIdentifiers() -> [String] {
+        var result: [String] = []
+        if let items = self.interaction?.selectionState?.selectedItems() {
+            for item in items {
+                if let item = item as? TGMediaSelectableItem, let identifier = item.uniqueIdentifier {
+                    result.append(identifier)
+                }
+            }
+        }
+        return result
+    }
+    
+    /// The audio file that is attached to the album that is being edited.
+    public var albumAudioState: (title: String, subtitle: String)? {
+        if let albumAudioValue = self.albumAudioValue {
+            return (albumAudioValue.title, albumAudioValue.subtitle)
+        }
+        return nil
+    }
+    
+    /// Shows an audio file attached to the album that is being edited, under its pictures; nil takes it away.
+    public func setAlbumAudio(title: String?, subtitle: String?) {
+        if let title {
+            self.albumAudioValue = MediaPickerAlbumAudio(title: title, subtitle: subtitle ?? "")
+        } else {
+            self.albumAudioValue = nil
+        }
+        self.controllerNode.updateAlbumAudio()
+        self.albumEditChanged?()
     }
     
     func secondaryButtonPressed() {
@@ -2916,7 +3130,12 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         self.undoOverlayController?.dismissWithCommitAction()
     }
     
-    public func requestDismiss(completion: @escaping () -> Void) {        
+    public func requestDismiss(completion: @escaping () -> Void) {
+        // The window that edits an album is folded away without a question: what was changed is kept.
+        if self.isEditingAlbum {
+            completion()
+            return
+        }
         if let selectionState = self.interaction?.selectionState, selectionState.count() > 0 {
             self.isDismissing = true
             
@@ -2948,6 +3167,9 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
     }
     
     public func shouldDismissImmediately() -> Bool {
+        if self.isEditingAlbum {
+            return true
+        }
         if let selectionState = self.interaction?.selectionState, selectionState.count() > 0 {
             return false
         } else {
@@ -3050,6 +3272,8 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
         self.dismissAllTooltips()
         if case .back = self.cancelButtonNode.state {
             self.controllerNode.updateDisplayMode(.all)
+        } else if self.isEditingAlbum, let albumEditCloseRequested = self.albumEditCloseRequested {
+            albumEditCloseRequested()
         } else {
             self.dismiss()
         }
@@ -3171,6 +3395,23 @@ public final class MediaPickerScreenImpl: ViewController, MediaPickerScreen, Att
                         return ContextController.Items(content: .list([]))
                     }
                     var items: [ContextMenuItem] = []
+                    if self.albumAddTitle != nil {
+                        // Pictures added to an album are not sent: no files, grouping, spoiler or price. Only the quality is chosen.
+                        items.append(.action(ContextMenuActionItem(text: strings.Attachment_AddInHighQuality, icon: { theme in
+                            return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/QualityHd"), color: theme.contextMenu.primaryColor)
+                        }, action: { [weak self] _, f in
+                            f(.default)
+                            
+                            guard let self else {
+                                return
+                            }
+                            self.interaction?.editingState.setHighQualityPhoto(true)
+                            if self.selectionCount > 0 {
+                                self.mainButtonPressed()
+                            }
+                        })))
+                        return ContextController.Items(content: .list(items))
+                    }
                     if !hasSpoilers && price == nil {
                         items.append(.action(ContextMenuActionItem(text: selectionCount > 1 ? strings.Attachment_SendAsFiles : strings.Attachment_SendAsFile, icon: { theme in
                             return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/File"), color: theme.contextMenu.primaryColor)
@@ -3458,7 +3699,11 @@ final class MediaPickerContext: AttachmentMediaPickerContext {
     }
     
     func setCaptionIsAboveMedia(_ captionIsAboveMedia: Bool) -> Void {
-        self.controller?.interaction?.editingState.setCaptionAbove(captionIsAboveMedia) 
+        self.controller?.interaction?.editingState.setCaptionAbove(captionIsAboveMedia)
+        if let controller = self.controller, controller.isEditingAlbum {
+            controller.albumCaptionValue = MediaPickerAlbumCaption(text: controller.albumCaptionValue?.text ?? NSAttributedString(), isAbove: captionIsAboveMedia)
+            controller.albumCaptionUpdated()
+        }
     }
         
     public var loadingProgress: Signal<CGFloat?, NoError> {
@@ -3479,6 +3724,10 @@ final class MediaPickerContext: AttachmentMediaPickerContext {
     
     func setCaption(_ caption: NSAttributedString) {
         self.controller?.interaction?.editingState.setForcedCaption(caption, skipUpdate: true)
+        if let controller = self.controller, controller.isEditingAlbum {
+            controller.albumCaptionValue = MediaPickerAlbumCaption(text: caption, isAbove: controller.albumCaptionValue?.isAbove ?? false)
+            controller.albumCaptionUpdated()
+        }
     }
     
     func send(mode: AttachmentMediaPickerSendMode, attachmentMode: AttachmentMediaPickerAttachmentMode, parameters: ChatSendMessageActionSheetController.SendParameters?) {
@@ -4342,5 +4591,17 @@ private class SelectedButtonNode: ASDisplayNode {
         self.button.frame = CGRect(origin: .zero, size: size)
 
         return size
+    }
+}
+
+public extension MediaPickerScreenImpl.Subject.Media {
+    /// What tells this picture from the others, the same before and after the picker has had it.
+    var albumEditIdentifier: String {
+        switch self {
+        case let .image(image):
+            return image.uniqueIdentifier
+        case let .video(url):
+            return url.absoluteString
+        }
     }
 }

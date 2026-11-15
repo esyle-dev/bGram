@@ -359,6 +359,8 @@ public final class ChatControllerInteraction: ChatControllerInteractionProtocol 
     public var seenOneTimeAnimatedMedia = Set<EngineMessage.Id>()
     public var freshWalletTransferMessageIds = Set<EngineMessage.Id>()
     public var requestWalletTransferArrival: ((EngineRawMessage) -> Void)?
+    /// The Edit button of a shared message: opens it in the shared rich-text editor.
+    public var openSharedMessageEditor: ((EngineMessage.Id) -> Void)?
     public var walletTransferArrivalState: ((EngineMessage.Id) -> WalletTransferArrivalState?)?
     public var cancelWalletTransferArrival: ((EngineMessage.Id) -> Void)?
     public var currentMessageWithLoadingReplyThread: EngineMessage.Id?
@@ -372,6 +374,9 @@ public final class ChatControllerInteraction: ChatControllerInteractionProtocol 
     public var summarizedMessageIds: Set<EngineMessage.Id> = Set()
     public var focusedTextInputIsMedia: Bool = false
     public var focusedPollAddOptionMessageId: EngineMessage.Id?
+    /// The edit of an album that is folded away from its window and waits in the place of the input panel. The panel that shows it is in
+    /// the chat module, so the session is kept here without a type.
+    public var albumEditSession: AnyObject?
     public var isAwaitingWalletTransferFlight: ((EngineRawMessage) -> Bool)?
     
     private var isOpeningMediaValue: Bool = false

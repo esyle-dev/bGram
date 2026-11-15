@@ -524,6 +524,7 @@ swift_library(
         "//submodules/TelegramUI/Components/GifVideoLayer",
         "//submodules/TelegramUI/Components/BatchVideoRendering",
         "//submodules/TelegramUI/Components/ComposeTodoScreen",
+        "//submodules/TelegramUI/Components/SharedMessageSetupScreen",
         "//submodules/TelegramUI/Components/SuggestedPostApproveAlert",
         "//submodules/TelegramUI/Components/Stars/BalanceNeededScreen",
         "//submodules/TelegramUI/Components/FaceScanScreen",

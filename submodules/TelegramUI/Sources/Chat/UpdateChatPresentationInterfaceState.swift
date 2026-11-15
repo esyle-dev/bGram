@@ -510,8 +510,8 @@ func updateChatPresentationInterfaceStateImpl(
     
     selfController.tempHideAccessoryPanels = selfController.presentationInterfaceState.search != nil
     
-    var forceLayout = false
-    
+    var forceLayout = force
+
     if let chatTitleContent = selfController.contentData?.state.chatTitleContent, let chatTitleView = selfController.chatTitleView {
         var titleTransition = ComponentTransition(transition)
         if case .messageOptions = selfController.subject {
