@@ -110,6 +110,9 @@ public class ChatMessageGiftOfferBubbleContentNode: ChatMessageBubbleContentNode
             return (contentProperties, nil, CGFloat.greatestFiniteMagnitude, { [weak self] constrainedSize, position in
                 var giftSize = CGSize(width: 260.0, height: 240.0)
                 var uniqueGift: StarGift.UniqueGift?
+                var statusRibbon: GiftItemComponent.Ribbon?
+                // Neutral grey reads well under the always-white ribbon text and sits on any gift backdrop.
+                let neutralRibbonColor: GiftItemComponent.Ribbon.Color = .custom(Int32(bitPattern: 0x8e8e93), Int32(bitPattern: 0x8e8e93))
                 
                 let incoming: Bool
                 if item.message.id.peerId == item.context.account.peerId && item.message.forwardInfo == nil {
@@ -152,9 +155,12 @@ public class ChatMessageGiftOfferBubbleContentNode: ChatMessageBubbleContentNode
                     
                     if isAccepted {
                         additionalText = item.presentationData.strings.Notification_StarGiftOffer_Status_Accepted
+                        statusRibbon = GiftItemComponent.Ribbon(text: item.presentationData.strings.Notification_StarGiftOffer_Ribbon_Sold, color: .green)
                     } else if isDeclined {
                         additionalText = item.presentationData.strings.Notification_StarGiftOffer_Status_Rejected
+                        statusRibbon = GiftItemComponent.Ribbon(text: item.presentationData.strings.Notification_StarGiftOffer_Ribbon_Declined, color: neutralRibbonColor)
                     } else if expireDate > currentTimestamp {
+                        statusRibbon = GiftItemComponent.Ribbon(text: item.presentationData.strings.Notification_StarGiftOffer_Ribbon_Offer, color: neutralRibbonColor)
                         func textForTimeout(_ value: Int32) -> String {
                             if value < 3600 {
                                 let minutes = value / 60
@@ -173,6 +179,7 @@ public class ChatMessageGiftOfferBubbleContentNode: ChatMessageBubbleContentNode
                         }
                     } else {
                         additionalText = item.presentationData.strings.Notification_StarGiftOffer_Status_Expired
+                        statusRibbon = GiftItemComponent.Ribbon(text: item.presentationData.strings.Notification_StarGiftOffer_Ribbon_Expired, color: neutralRibbonColor)
                     }
                 } else {
                     text = ""
@@ -265,6 +272,7 @@ public class ChatMessageGiftOfferBubbleContentNode: ChatMessageBubbleContentNode
                                         strings: item.presentationData.strings,
                                         peer: nil,
                                         subject: .uniqueGift(gift: uniqueGift, price: nil),
+                                        ribbon: statusRibbon,
                                         mode: .thumbnail
                                     )),
                                     environment: {},

@@ -36,12 +36,14 @@ import TextFormat
 import PromptUI
 import CollectionTabItemComponent
 import EdgeEffect
+import BetaFeatures
 
 public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScrollViewDelegate {
     public enum GiftCollection: Equatable {
         case all
         case collection(Int32)
         case create
+        case archive
         
         init(rawValue: Int32) {
             switch rawValue {
@@ -49,6 +51,8 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                 self = .all
             case -1:
                 self = .create
+            case -2:
+                self = .archive
             default:
                 self = .collection(rawValue)
             }
@@ -60,6 +64,8 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                 return 0
             case .create:
                 return -1
+            case .archive:
+                return -2
             case let .collection(id):
                 return id
             }
@@ -107,6 +113,22 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
     private var reorderedCollectionIds: [Int32]?
     private var isReordering = false
     
+    /// Only the profile's owner has an archive, and with it the Archive tab.
+    private let giftsArchive: GiftsArchive?
+    private var archiveDisposable: Disposable?
+    private var hasArchivedGifts = false
+    private var isClosingArchiveTab = false
+    private var animateNextTabSelectorItemChanges = false
+    /// The last laid out frames of the Archive tab (true) and the All tab (false), in the scroll view's coordinates.
+    /// Kept after the Archive tab goes, so a gift taken back out of it still flies from where it was.
+    private var archiveFlightTabFrames: [Bool: CGRect] = [:]
+    
+    /// While the bottom panel is shown, toasts are raised above it instead of covering its button.
+    private var toastBottomInset: CGFloat?
+    private var toastAppearance: UndoOverlayController.Appearance? {
+        return self.toastBottomInset.flatMap { UndoOverlayController.Appearance(bottomInset: $0) }
+    }
+    
     private let ready = Promise<Bool>()
     private var didSetReady: Bool = false
     public var isReady: Signal<Bool, NoError> {
@@ -147,9 +169,13 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             self.collectionsMaxCount = 6
         }
         
+        let giftsArchive: GiftsArchive? = BetaFeatures.isEnabled(.giftArchive) && (peerId == context.account.peerId || canManage) ? GiftsArchive.archive(context: context, peerId: peerId) : nil
+        self.giftsArchive = giftsArchive
+        self.hasArchivedGifts = !(giftsArchive?.itemKeys.isEmpty ?? true)
+        
         self.backgroundNode = ASDisplayNode()
         self.scrollNode = ASScrollNode()
-        self.giftsListView = GiftsListView(context: context, peerId: peerId, profileGifts: profileGifts, giftsCollections: profileGiftsCollections, canSelect: false)
+        self.giftsListView = GiftsListView(context: context, peerId: peerId, profileGifts: profileGifts, giftsCollections: profileGiftsCollections, canSelect: false, archive: giftsArchive)
                 
         super.init()
                 
@@ -179,6 +205,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             }
             self.displayUnpinScreen(gift: gift, completion: completion)
         }
+        self.setupArchiveFlights(giftsListView: self.giftsListView)
         
         self.collectionsDisposable = (profileGiftsCollections.state
         |> deliverOnMainQueue).start(next: { [weak self] state in
@@ -188,6 +215,17 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             self.collections = state.collections
             self.updateScrolling(transition: .easeInOut(duration: 0.2))
         })
+        
+        if let giftsArchive {
+            self.archiveDisposable = (giftsArchive.itemKeysSignal
+            |> map { itemKeys -> Bool in
+                return !itemKeys.isEmpty
+            }
+            |> distinctUntilChanged
+            |> deliverOnMainQueue).startStrict(next: { [weak self] hasArchivedGifts in
+                self?.updateHasArchivedGifts(hasArchivedGifts)
+            })
+        }
         
         if let initialGiftCollectionId {
             self.setCurrentCollection(collection: .collection(Int32(initialGiftCollectionId)))
@@ -205,6 +243,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
     
     deinit {
         self.collectionsDisposable?.dispose()
+        self.archiveDisposable?.dispose()
     }
         
     public override func didLoad() {
@@ -347,6 +386,104 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
         }
     }
     
+    private func updateHasArchivedGifts(_ hasArchivedGifts: Bool, deferClosingArchiveTab: Bool = true) {
+        if self.hasArchivedGifts == hasArchivedGifts {
+            return
+        }
+        if !hasArchivedGifts, case .archive = self.currentCollection, deferClosingArchiveTab {
+            // The last gift flies to the All tab first; the Archive tab closes once it has landed.
+            if !self.isClosingArchiveTab {
+                self.isClosingArchiveTab = true
+                Queue.mainQueue().after(0.5, { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    self.isClosingArchiveTab = false
+                    self.updateHasArchivedGifts(!(self.giftsArchive?.itemKeys.isEmpty ?? true), deferClosingArchiveTab: false)
+                })
+            }
+            return
+        }
+        self.hasArchivedGifts = hasArchivedGifts
+        
+        // The Archive tab comes with the first archived gift and goes with the last one.
+        self.animateNextTabSelectorItemChanges = true
+        if !hasArchivedGifts, case .archive = self.currentCollection {
+            self.setCurrentCollection(collection: .all)
+        } else {
+            self.updateScrolling(transition: .spring(duration: 0.4))
+        }
+    }
+    
+    private func setupArchiveFlights(giftsListView: GiftsListView) {
+        giftsListView.archiveFlightTarget = { [weak self, weak giftsListView] isArchiveTab in
+            // A grid that is sliding away has no tab to fly to.
+            guard let self, let giftsListView, giftsListView === self.giftsListView, let frame = self.archiveFlightTabFrames[isArchiveTab], self.scrollNode.view.bounds.intersects(frame) else {
+                return nil
+            }
+            return self.scrollNode.view.convert(frame, to: giftsListView)
+        }
+        giftsListView.archiveFlightLanded = { [weak self] isArchiveTab in
+            guard let self, let tabSelectorView = self.tabSelector.view as? TabSelectorComponent.View else {
+                return
+            }
+            tabSelectorView.animateItemBounce(AnyHashable(isArchiveTab ? GiftCollection.archive.rawValue : GiftCollection.all.rawValue))
+        }
+    }
+    
+    private func setGift(_ gift: ProfileGiftsContext.State.StarGift, isArchived: Bool, displayToast: Bool = true) {
+        guard let giftsArchive = self.giftsArchive, let reference = gift.reference, let presentationData = self.currentParams?.presentationData else {
+            return
+        }
+        // The tab row is updated before the grids, so the gift leaving a grid has its tab to fly to.
+        var itemKeys = giftsArchive.itemKeys
+        if isArchived {
+            itemKeys.insert(GiftsArchive.itemKey(reference: reference))
+        } else {
+            itemKeys.remove(GiftsArchive.itemKey(reference: reference))
+        }
+        self.updateHasArchivedGifts(!itemKeys.isEmpty)
+        giftsArchive.setIsArchived(isArchived, reference: reference)
+        
+        if !displayToast {
+            return
+        }
+        
+        var animationFile: TelegramMediaFile?
+        switch gift.gift {
+        case let .generic(gift):
+            animationFile = gift.file
+        case let .unique(gift):
+            for attribute in gift.attributes {
+                if case let .model(_, file, _, _) = attribute {
+                    animationFile = file
+                    break
+                }
+            }
+        }
+        
+        let text = isArchived ? presentationData.strings.PeerInfo_Gifts_ToastArchived_Text : presentationData.strings.PeerInfo_Gifts_ToastUnarchived_Text
+        let undoText: String? = isArchived ? presentationData.strings.Undo_Undo : nil
+        let content: UndoOverlayContent
+        if let animationFile {
+            content = .sticker(context: self.context, file: animationFile, loop: false, title: nil, text: text, undoText: undoText, customAction: nil)
+        } else {
+            content = .actionSucceeded(title: nil, text: text, cancel: undoText, destructive: false)
+        }
+        // The toast follows a moment later, so that setting it up does not cost the first frames of the gift's flight.
+        Queue.mainQueue().after(0.2, { [weak self] in
+            guard let self else {
+                return
+            }
+            self.parentController?.present(UndoOverlayController(presentationData: presentationData, content: content, elevatedLayout: true, appearance: self.toastAppearance, action: { [weak self] action in
+                if case .undo = action {
+                    self?.setGift(gift, isArchived: false, displayToast: false)
+                }
+                return true
+            }), in: .current)
+        })
+    }
+    
     public func ensureMessageIsVisible(id: EngineMessage.Id) {
     }
     
@@ -411,13 +548,16 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             return
         }
         var animateRight = false
-        if case let .collection(currentId) = self.currentCollection {
+        if case .archive = collection {
+            // The Archive tab follows every collection.
+            animateRight = true
+        } else if case let .collection(currentId) = self.currentCollection {
             if case let .collection(nextId) = collection {
                 if let currentIndex = self.collections?.firstIndex(where: { $0.id == currentId }), let nextIndex = self.collections?.firstIndex(where: { $0.id == nextId }) {
                     animateRight = nextIndex > currentIndex
                 }
             }
-        } else {
+        } else if self.currentCollection != .archive {
             animateRight = true
         }
 
@@ -430,11 +570,14 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
         default:
             profileGifts = self.profileGifts
         }
-        if case .ready = profileGifts.currentState?.dataState {
+        // All and Archive show the same gifts: moving between them keeps what is loaded, as a reload would drop every
+        // gift past the first page and bring them back page by page.
+        let isSameGifts = (self.currentCollection == .all || self.currentCollection == .archive) && (collection == .all || collection == .archive)
+        if !isSameGifts, case .ready = profileGifts.currentState?.dataState {
             profileGifts.reload()
         }
 
-        self.giftsListView = GiftsListView(context: self.context, peerId: self.peerId, profileGifts: profileGifts, giftsCollections: self.profileGiftsCollections, canSelect: false)
+        self.giftsListView = GiftsListView(context: self.context, peerId: self.peerId, profileGifts: profileGifts, giftsCollections: self.profileGiftsCollections, canSelect: false, archive: self.giftsArchive, isArchive: collection == .archive)
         self.giftsListView.addToCollection = { [weak self] in
             guard let self else {
                 return
@@ -468,6 +611,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             }
             self.contextAction(gift: gift, view: view, gesture: gesture)
         }
+        self.setupArchiveFlights(giftsListView: self.giftsListView)
         self.giftsListView.parentController = self.parentController
         self.giftsListView.frame = previousGiftsListView.frame
                                         
@@ -593,7 +737,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             }
             
             let hasNonEmptyCollections = self.collections?.contains(where: { $0.count > 0 }) ?? false
-            if let collections = self.collections, !collections.isEmpty && (hasNonEmptyCollections || canEditCollections) {
+            if let collections = self.collections, (!collections.isEmpty && (hasNonEmptyCollections || canEditCollections)) || self.hasArchivedGifts {
                 var tabSelectorItems: [TabSelectorComponent.Item] = []
                 tabSelectorItems.append(TabSelectorComponent.Item(
                     id: AnyHashable(GiftCollection.all.rawValue),
@@ -639,6 +783,21 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                     ))
                 }
                         
+                if self.hasArchivedGifts {
+                    tabSelectorItems.append(TabSelectorComponent.Item(
+                        id: AnyHashable(GiftCollection.archive.rawValue),
+                        content: .component(AnyComponent(
+                            CollectionTabItemComponent(
+                                context: self.context,
+                                icon: .archive,
+                                title: params.presentationData.strings.PeerInfo_Gifts_Collections_Archive,
+                                theme: params.presentationData.theme
+                            )
+                        )),
+                        isReorderable: false
+                    ))
+                }
+                
                 if canEditCollections {
                     tabSelectorItems.append(TabSelectorComponent.Item(
                         id: AnyHashable(GiftCollection.create.rawValue),
@@ -654,8 +813,16 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                     ))
                 }
                 
+                var tabSelectorTransition = transition
+                var revealsArchiveTab = false
+                if self.animateNextTabSelectorItemChanges && !transition.animation.isImmediate {
+                    self.animateNextTabSelectorItemChanges = false
+                    revealsArchiveTab = self.hasArchivedGifts
+                    tabSelectorTransition = transition.withUserData(TabSelectorComponent.TransitionHint(scrollToEnd: false, animateItemChanges: true))
+                }
+                
                 let tabSelectorSize = self.tabSelector.update(
-                    transition: transition,
+                    transition: tabSelectorTransition,
                     component: AnyComponent(TabSelectorComponent(
                         context: self.context,
                         colors: TabSelectorComponent.Colors(
@@ -707,22 +874,54 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                     containerSize: CGSize(width: params.size.width - 14.0 * 2.0, height: 44.0)
                 )
                 if let tabSelectorView = self.tabSelector.view {
-                    if tabSelectorView.superview == nil {
+                    // The row also comes back while it is still fading out, e.g. when a gift is archived again right
+                    // after the archive emptied.
+                    var tabSelectorFrameTransition = transition
+                    if tabSelectorView.superview == nil || tabSelectorView.alpha == 0.0 {
+                        if tabSelectorView.superview == nil {
+                            // A row that is not on screen takes its place at once instead of growing out of its last frame.
+                            tabSelectorFrameTransition = .immediate
+                            self.scrollNode.view.insertSubview(tabSelectorView, at: 0)
+                        }
                         tabSelectorView.alpha = 1.0
-                        self.scrollNode.view.insertSubview(tabSelectorView, at: 0)
+                        tabSelectorView.layer.removeAnimation(forKey: "opacity")
+                        tabSelectorView.layer.removeAnimation(forKey: "transform.scale")
                         
                         if !transition.animation.isImmediate {
-                            tabSelectorView.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
+                            tabSelectorView.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.35)
+                            tabSelectorView.layer.animateSpring(from: 0.92 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: 0.5, damping: 88.0)
                         }
                     }
-                    transition.setFrame(view: tabSelectorView, frame: CGRect(origin: CGPoint(x: floor((params.size.width - tabSelectorSize.width) / 2.0), y: topInset), size: tabSelectorSize))
+                    tabSelectorFrameTransition.setFrame(view: tabSelectorView, frame: CGRect(origin: CGPoint(x: floor((params.size.width - tabSelectorSize.width) / 2.0), y: topInset), size: tabSelectorSize))
+                    
+                    if let tabSelectorView = tabSelectorView as? TabSelectorComponent.View {
+                        if revealsArchiveTab && tabSelectorView.contentSize.width > tabSelectorView.bounds.width {
+                            // A new Archive tab sits next to the end of a row that does not fit: the row scrolls to it.
+                            tabSelectorView.scrollToEnd()
+                        }
+                        let visibleRowBounds = tabSelectorView.bounds.insetBy(dx: 16.0, dy: 0.0)
+                        for isArchiveTab in [false, true] {
+                            guard let itemFrame = tabSelectorView.frameForItem(AnyHashable(isArchiveTab ? GiftCollection.archive.rawValue : GiftCollection.all.rawValue)) else {
+                                continue
+                            }
+                            // A tab scrolled out of the row is approached from the row's edge.
+                            let itemCenter = CGPoint(x: max(visibleRowBounds.minX, min(visibleRowBounds.maxX, itemFrame.midX)), y: itemFrame.midY)
+                            self.archiveFlightTabFrames[isArchiveTab] = tabSelectorView.convert(itemFrame.size.centered(around: itemCenter), to: self.scrollNode.view)
+                        }
+                    }
                     
                     topInset += tabSelectorSize.height + 15.0
                 }
-            } else if let tabSelectorView = self.tabSelector.view {
+            } else if let tabSelectorView = self.tabSelector.view, tabSelectorView.superview != nil, tabSelectorView.alpha != 0.0 {
+                // Fades out once: a later update while it fades must neither restart the fade nor cut it short.
+                self.animateNextTabSelectorItemChanges = false
                 tabSelectorView.alpha = 0.0
-                tabSelectorView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, completion: { _ in
-                    tabSelectorView.removeFromSuperview()
+                tabSelectorView.layer.animateScale(from: 1.0, to: 0.9, duration: 0.25, removeOnCompletion: false)
+                tabSelectorView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, completion: { [weak tabSelectorView] _ in
+                    if let tabSelectorView, tabSelectorView.alpha == 0.0 {
+                        tabSelectorView.removeFromSuperview()
+                        tabSelectorView.layer.removeAnimation(forKey: "transform.scale")
+                    }
                 })
             }
             
@@ -774,7 +973,7 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             let buttonTitle: String
             var buttonIconName: String?
             if self.peerId == self.context.account.peerId {
-                if case .all = self.currentCollection {
+                if self.currentCollection == .all || self.currentCollection == .archive {
                     buttonTitle = params.presentationData.strings.PeerInfo_Gifts_Send
                 } else {
                     buttonTitle = params.presentationData.strings.PeerInfo_Gifts_AddGiftsButton
@@ -916,6 +1115,9 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             
             ComponentTransition.spring(duration: 0.4).setSublayerTransform(view: panelContentContainer, transform: CATransform3DMakeTranslation(0.0, bottomPanelHeight * (1.0 - panelVisibility), 0.0))
             
+            // A toast sits on the screen's bottom inset plus this, 12 points above it: just over the panel's top.
+            self.toastBottomInset = panelVisibility > 0.0 ? max(49.0, bottomPanelHeight - bottomInset - 4.0) : nil
+            
             contentHeight += bottomPanelHeight
             bottomScrollInset = bottomPanelHeight - 40.0
             contentHeight += params.bottomInset
@@ -978,6 +1180,9 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
         } else {
             canReorder = true
         }
+        if case .archive = self.currentCollection {
+            canReorder = false
+        }
         
         let profileGifts: ProfileGiftsContext
         switch self.currentCollection {
@@ -987,8 +1192,19 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
             profileGifts = self.profileGifts
         }
         
+        let isArchived = self.giftsArchive?.contains(gift.reference) ?? false
+        var archiveItem: ContextMenuItem?
+        if canManage, self.giftsArchive != nil, gift.reference != nil {
+            archiveItem = .action(ContextMenuActionItem(text: isArchived ? strings.PeerInfo_Gifts_Context_Unarchive : bgramText("Архив", strings.PeerInfo_Gifts_Context_Archive), icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isArchived ? "Chat/Context Menu/Unarchive" : "Chat/Context Menu/Archive"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, _ in
+                c?.dismiss(completion: { [weak self] in
+                    self?.setGift(gift, isArchived: !isArchived)
+                })
+            }))
+        }
+        
         var items: [ContextMenuItem] = []
-        if canManage {
+        // An archived gift is not added to collections from the Archive tab: it is unarchived first.
+        if canManage && !isArchived {
             items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_AddToCollection, textLayout: .twoLinesMax, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Peer Info/Gifts/AddToCollection"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
                 var subItems: [ContextMenuItem] = []
                 
@@ -1091,6 +1307,12 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                 
                 c?.pushItems(items: .single(ContextController.Items(content: .list(subItems))))
             })))
+            if let archiveItem {
+                items.append(archiveItem)
+            }
+            items.append(.separator)
+        } else if let archiveItem {
+            items.append(archiveItem)
             items.append(.separator)
         }
         
@@ -1311,11 +1533,13 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
                                 presentationData: presentationData,
                                 content: .sticker(context: context, file: animationFile, loop: false, title: nil, text: text, undoText: nil, customAction: nil),
                                 elevatedLayout: true,
+                                appearance: self.toastAppearance,
                                 action: { _ in
                                     return true
                                 }
                             )
-                            self.parentController?.present(resultController, in: .window(.root))
+                            // Presented over the profile, whose bottom panel the toast is placed above.
+                            self.parentController?.present(resultController, in: .current)
                         }
                     }
                 })

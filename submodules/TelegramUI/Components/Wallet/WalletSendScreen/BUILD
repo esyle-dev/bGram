@@ -32,6 +32,7 @@ swift_library(
     ],
     data = [":WalletSendAmountMetalSourcesBundle"],
     deps = [
+        "//submodules/BetaFeatures:BetaFeatures",
         "//submodules/AccountContext",
         "//submodules/AppBundle",
         "//submodules/AttachmentUI",
@@ -66,6 +67,9 @@ swift_library(
         "//submodules/PasscodeCore",
         "//submodules/TelegramUI/Components/Wallet/WalletAuthorizationUI",
         "//submodules/UndoUI",
+        "//submodules/TelegramUI/Components/Gifts/GiftItemComponent",
+        "//submodules/TelegramUI/Components/Stars/BalanceNeededScreen",
+        "//submodules/TelegramUI/Components/Chat/ChatMessagePaymentAlertController",
     ],
     visibility = [
         "//visibility:public",

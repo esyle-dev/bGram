@@ -11243,7 +11243,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         guard let contentData = self.contentData else {
             return
         }
-        self.chatDisplayNode.historyNode.offerNextChannelToRead = contentData.state.offerNextChannelToRead && self.presentationInterfaceState.interfaceState.selectionState == nil
+        // Next Chat Swipe concept (`--concepts-topic-swipe`): the pull at the end works in any chat, not only in channels.
+        self.chatDisplayNode.historyNode.offerNextChannelToRead = (contentData.state.offerNextChannelToRead || ConceptsTopicSwipe.offersPull(mode: self.mode, chatLocation: self.chatLocation)) && self.presentationInterfaceState.interfaceState.selectionState == nil
     }
     
     func displayGiveawayStatusInfo(messageId: EngineMessage.Id, giveawayInfo: PremiumGiveawayInfo) {

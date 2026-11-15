@@ -99,14 +99,19 @@ public final class NoteAIStubService: NoteAIService {
         let request = Request()
         let key = anchor.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)).lowercased()
 
-        // The language of the message wins over the app's.
-        let isUkrainian: Bool
+        // The language of the message wins over the app's: Cyrillic is Russian unless the app is
+        // Ukrainian, so a note on a Russian message no longer comes back in Ukrainian.
+        let wikipediaLanguage: String
         if context.unicodeScalars.contains(where: { (0x0400 ... 0x04FF).contains($0.value) }) {
-            isUkrainian = true
+            wikipediaLanguage = language.hasPrefix("uk") ? "uk" : "ru"
         } else if context.unicodeScalars.contains(where: { $0.properties.isAlphabetic }) {
-            isUkrainian = false
+            wikipediaLanguage = "en"
+        } else if language.hasPrefix("uk") {
+            wikipediaLanguage = "uk"
+        } else if language.hasPrefix("ru") {
+            wikipediaLanguage = "ru"
         } else {
-            isUkrainian = language.hasPrefix("uk") || language.hasPrefix("ru")
+            wikipediaLanguage = "en"
         }
 
         let finish: (Swift.Result<NoteAIResult, NoteAIError>) -> Void = { result in
@@ -131,7 +136,7 @@ public final class NoteAIStubService: NoteAIService {
         } else if key.isEmpty {
             finish(.failure(.nothingFound))
         } else {
-            NoteAIStubService.searchWikipedia(query: key, language: isUkrainian ? "uk" : "en", request: request, completion: finish)
+            NoteAIStubService.searchWikipedia(query: key, language: wikipediaLanguage, request: request, completion: finish)
         }
         return request
     }

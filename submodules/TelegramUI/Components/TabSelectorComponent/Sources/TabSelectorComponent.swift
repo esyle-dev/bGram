@@ -17,9 +17,12 @@ public final class TabSelectorComponent: Component {
     
     public final class TransitionHint {
         public let scrollToEnd: Bool
+        /// Items added or removed by this update scale and fade in or out instead of appearing and disappearing at once.
+        public let animateItemChanges: Bool
         
-        public init(scrollToEnd: Bool) {
+        public init(scrollToEnd: Bool, animateItemChanges: Bool = false) {
             self.scrollToEnd = scrollToEnd
+            self.animateItemChanges = animateItemChanges
         }
     }
     
@@ -524,7 +527,20 @@ public final class TabSelectorComponent: Component {
             return nil
         }
         
+        /// Briefly enlarges an item and springs it back, e.g. when something has just landed on it.
+        public func animateItemBounce(_ id: AnyHashable) {
+            guard let item = self.visibleItems[id] else {
+                return
+            }
+            item.layer.animateScale(from: 1.0, to: 1.15, duration: 0.12, removeOnCompletion: false, completion: { [weak item] _ in
+                item?.layer.animateSpring(from: 1.15 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: 0.5, damping: 45.0)
+            })
+        }
+        
         func update(component: TabSelectorComponent, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: ComponentTransition) -> CGSize {
+            // A selector that is laid out for the first time puts its selection in place at once, rather than moving
+            // it in from the corner when that first layout is animated.
+            let selectionTransition: ComponentTransition = self.component == nil ? .immediate : transition
             let selectionColorUpdated = component.colors.selection != self.component?.colors.selection
            
             self.component = component
@@ -587,12 +603,17 @@ public final class TabSelectorComponent: Component {
             var index = 0
             var itemViews: [AnyHashable: (VisibleItem, CGSize, ComponentTransition)] = [:]
             
+            // Only a selector that is already laid out animates its item changes; a new one shows its items at once.
+            let animateItemChanges = !transition.animation.isImmediate && self.bounds.width > 0.0 && transition.userData(TransitionHint.self)?.animateItemChanges == true
+            var insertedIds = Set<AnyHashable>()
+            
             for item in component.items {
                 var itemTransition = transition
                 let itemView: VisibleItem
                 if let current = self.visibleItems[item.id] {
                     itemView = current
                 } else {
+                    insertedIds.insert(item.id)
                     let itemId = item.id
                     itemView = VisibleItem(action: { [weak self] in
                         guard let self, let component = self.component else {
@@ -738,6 +759,11 @@ public final class TabSelectorComponent: Component {
                     
                     itemTransition.setAlpha(view: itemTitleView, alpha: itemAlpha)
                 }
+                
+                if animateItemChanges && insertedIds.contains(item.id) {
+                    itemView.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.3)
+                    itemView.layer.animateSpring(from: 0.6 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: 0.5, damping: 70.0)
+                }
             }
             contentWidth += spacing
             
@@ -745,7 +771,15 @@ public final class TabSelectorComponent: Component {
             for (id, itemView) in self.visibleItems {
                 if !validIds.contains(id) {
                     removeIds.append(id)
-                    itemView.removeFromSuperview()
+                    if animateItemChanges {
+                        itemView.isUserInteractionEnabled = false
+                        itemView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, removeOnCompletion: false)
+                        itemView.layer.animateScale(from: 1.0, to: 0.6, duration: 0.3, removeOnCompletion: false, completion: { [weak itemView] _ in
+                            itemView?.removeFromSuperview()
+                        })
+                    } else {
+                        itemView.removeFromSuperview()
+                    }
                 }
             }
             for id in removeIds {
@@ -772,16 +806,16 @@ public final class TabSelectorComponent: Component {
                     var mappedSelectionFrame = effectiveBackgroundRect.insetBy(dx: innerInset, dy: 0.0)
                     mappedSelectionFrame.origin.y = mappedSelectionFrame.maxY + 7.0
                     mappedSelectionFrame.size.height = 3.0
-                    transition.setPosition(view: self.selectionView, position: mappedSelectionFrame.center)
-                    transition.setBounds(view: self.selectionView, bounds: CGRect(origin: CGPoint(), size: mappedSelectionFrame.size))
-                    transition.setTransform(view: self.selectionView, transform: CATransform3DIdentity)
+                    selectionTransition.setPosition(view: self.selectionView, position: mappedSelectionFrame.center)
+                    selectionTransition.setBounds(view: self.selectionView, bounds: CGRect(origin: CGPoint(), size: mappedSelectionFrame.size))
+                    selectionTransition.setTransform(view: self.selectionView, transform: CATransform3DIdentity)
                 } else {
-                    transition.setPosition(view: self.selectionView, position: selectedBackgroundRect.center)
-                    transition.setBounds(view: self.selectionView, bounds: CGRect(origin: CGPoint(), size: selectedBackgroundRect.size))
+                    selectionTransition.setPosition(view: self.selectionView, position: selectedBackgroundRect.center)
+                    selectionTransition.setBounds(view: self.selectionView, bounds: CGRect(origin: CGPoint(), size: selectedBackgroundRect.size))
                     if selectedItemIsReordering {
-                        transition.setTransform(view: self.selectionView, transform: CATransform3DMakeScale(1.1, 1.1, 1.0))
+                        selectionTransition.setTransform(view: self.selectionView, transform: CATransform3DMakeScale(1.1, 1.1, 1.0))
                     } else {
-                        transition.setTransform(view: self.selectionView, transform: CATransform3DIdentity)
+                        selectionTransition.setTransform(view: self.selectionView, transform: CATransform3DIdentity)
                     }
                 }
             } else {

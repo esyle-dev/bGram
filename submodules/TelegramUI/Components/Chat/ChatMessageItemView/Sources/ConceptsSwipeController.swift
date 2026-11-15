@@ -13,6 +13,11 @@ import ChatMessageSwipeToReplyNode
 
 public final class ConceptsSwipeController {
     private var session: ChatSwipeActionsSession?
+    /// The rail appears only after a full swipe held for `holdDuration`: a plain swipe stays a plain reply.
+    private var pendingReveal: (() -> Void)?
+    private static let holdDuration: Double = 0.9
+    /// How much further than the reply threshold the finger has to go for a "full" swipe.
+    private static let revealFactor: CGFloat = 1.35
 
     public init() {
     }
@@ -36,33 +41,62 @@ public final class ConceptsSwipeController {
     }
 
     /// Вызывается на каждом `.changed`, когда кружок ответа уже стоит на месте (`centerNode.position`).
+    /// Рейка действий не появляется сразу: нужен полный свайп и пауза на нём (`holdDuration`), иначе это
+    /// обычный ответ. Без паузы палец, уехавший ниже, попадал на «скопировать» вместо ответа.
     public func changed(node: ASDisplayNode, item: ChatMessageItem, centerNode: ChatMessageSwipeToReplyNode, translation: CGPoint, threshold: CGFloat) {
         guard ChatSwipeActionsPrototype.isEnabled else {
             return
         }
-        if self.session == nil {
-            let theme = item.presentationData.theme
-            var count = 1
-            if case let .group(messages) = item.content {
-                count = messages.count
-            }
-            ChatSwipeActionsPrototype.groupCount = count
-            self.session = ChatSwipeActionsSession(
-                slots: ChatSwipeActionsPrototype.slots(message: item.message, strings: item.presentationData.strings, count: count),
-                centerNode: centerNode,
-                parent: node,
-                labelFill: selectDateFillStaticColor(theme: theme.theme, wallpaper: theme.wallpaper),
-                enableBlur: item.controllerInteraction.enableFullTranslucency,
-                foregroundColor: theme.theme.contextMenu.primaryColor,
-                capsuleColor: theme.theme.rootController.navigationBar.segmentedBackgroundColor,
-                isDark: theme.theme.overallDarkAppearance,
-                wallpaper: item.controllerInteraction.presentationContext.backgroundNode,
-                makeIcon: {
-                    return ChatMessageSwipeToReplyNode(fillColor: selectDateFillStaticColor(theme: theme.theme, wallpaper: theme.wallpaper), enableBlur: item.controllerInteraction.enableFullTranslucency && dateFillNeedsBlur(theme: theme.theme, wallpaper: theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: theme.theme.chat.message.shareButtonForegroundColor, wallpaper: theme.wallpaper), backgroundNode: nil, action: .reply)
-                }
-            )
+        if let session = self.session {
+            session.update(translation: translation, threshold: threshold, centerPosition: centerNode.position)
+            return
         }
-        self.session?.update(translation: translation, threshold: threshold, centerPosition: centerNode.position)
+        guard translation.x <= -(threshold * Self.revealFactor) else {
+            self.cancelPendingReveal()
+            return
+        }
+        guard self.pendingReveal == nil else {
+            return
+        }
+        let reveal: () -> Void = { [weak self, weak node, weak item, weak centerNode] in
+            guard let self, let node, let item, let centerNode, self.session == nil else {
+                return
+            }
+            self.pendingReveal = nil
+            self.startSession(node: node, item: item, centerNode: centerNode, translation: translation, threshold: threshold)
+            HapticFeedback().impact(.medium)
+        }
+        self.pendingReveal = reveal
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.holdDuration, execute: reveal)
+    }
+
+    private func cancelPendingReveal() {
+        self.pendingReveal = nil
+    }
+
+    private func startSession(node: ASDisplayNode, item: ChatMessageItem, centerNode: ChatMessageSwipeToReplyNode, translation: CGPoint, threshold: CGFloat) {
+        let theme = item.presentationData.theme
+        var count = 1
+        if case let .group(messages) = item.content {
+            count = messages.count
+        }
+        ChatSwipeActionsPrototype.groupCount = count
+        let session = ChatSwipeActionsSession(
+            slots: ChatSwipeActionsPrototype.slots(message: item.message, strings: item.presentationData.strings, count: count),
+            centerNode: centerNode,
+            parent: node,
+            labelFill: selectDateFillStaticColor(theme: theme.theme, wallpaper: theme.wallpaper),
+            enableBlur: item.controllerInteraction.enableFullTranslucency,
+            foregroundColor: theme.theme.contextMenu.primaryColor,
+            capsuleColor: theme.theme.rootController.navigationBar.segmentedBackgroundColor,
+            isDark: theme.theme.overallDarkAppearance,
+            wallpaper: item.controllerInteraction.presentationContext.backgroundNode,
+            makeIcon: {
+                return ChatMessageSwipeToReplyNode(fillColor: selectDateFillStaticColor(theme: theme.theme, wallpaper: theme.wallpaper), enableBlur: item.controllerInteraction.enableFullTranslucency && dateFillNeedsBlur(theme: theme.theme, wallpaper: theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: theme.theme.chat.message.shareButtonForegroundColor, wallpaper: theme.wallpaper), backgroundNode: nil, action: .reply)
+            }
+        )
+        self.session = session
+        session.update(translation: translation, threshold: threshold, centerPosition: centerNode.position)
     }
 
     /// Конец жеста. nil — рейки не было (функция выключена): решает штатный код. Иначе true — ответить, false — не отвечать.
@@ -71,6 +105,8 @@ public final class ConceptsSwipeController {
             return nil
         }
         self.setListScrollLocked(node: node, false)
+        // A full swipe released before the hold elapsed stays a plain reply.
+        self.cancelPendingReveal()
         guard let session = self.session else {
             return nil
         }

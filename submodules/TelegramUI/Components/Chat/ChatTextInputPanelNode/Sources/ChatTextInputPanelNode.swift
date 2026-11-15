@@ -5120,7 +5120,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
             ])
             
             if BetaFeatures.isEnabled(.annotations), let noteState = messageNoteMenuState(text: richTextInputNode.attributedText, selectedRange: richTextInputNode.selectedRange) {
-                children.append(UIAction(title: "Annotations", image: nil, attributes: noteState.isEnabled ? [] : .disabled) { [weak self] _ in
+                children.append(UIAction(title: bgramText("Аннотации", "Annotations"), image: nil, attributes: noteState.isEnabled ? [] : .disabled) { [weak self] _ in
                     self?.interfaceInteraction?.openNoteEditing()
                 })
             }
@@ -5205,7 +5205,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         let currentLink = richTextInputNode.currentRichTextLinkURL()
         let isEditingNote = currentLink.flatMap({ MessageNoteContent.isNoteUrl($0) }) ?? false
         let canAddNote = richTextInputNode.selectedRange.length > 0 && (currentLink == nil || isEditingNote)
-        children.append(UIAction(title: "Annotations", image: nil,
+        children.append(UIAction(title: bgramText("Аннотации", "Annotations"), image: nil,
                                  attributes: canAddNote ? [] : .disabled) { [weak self] _ in
             self?.interfaceInteraction?.openNoteEditing()
         })

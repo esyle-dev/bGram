@@ -1434,6 +1434,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     self.mainWindow.debugAction = nil
                     self.mainWindow.viewController = context.rootController
                     BGramStartupTrace.finish()
+                    BGramWhatsNew.presentIfNeeded(from: context.rootController, isRussian: context.context.sharedContext.currentPresentationData.with { $0 }.strings.baseLanguageCode.hasPrefix("ru"))
                     if conceptsOfflineDemoEnabled, self.conceptsOfflineDemoPanel == nil, let window = self.window {
                         self.conceptsOfflineDemoPanel = ConceptsOfflineDemoPanel(context: context.context, window: window)
                     }

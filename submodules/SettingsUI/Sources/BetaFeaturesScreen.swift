@@ -77,7 +77,7 @@ private enum BetaFeaturesScreenEntry: ItemListNodeEntry {
         case let .header(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .feature(_, feature, title, text, value):
-            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: title, text: text, value: value, enableInteractiveChanges: true, sectionId: self.section, style: .blocks, updated: { value in
+            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: title, text: text, value: value, enableInteractiveChanges: true, enabled: BetaFeatures.isAvailable(feature), sectionId: self.section, style: .blocks, updated: { value in
                 arguments.toggle(feature, value)
             })
         case let .footer(text):

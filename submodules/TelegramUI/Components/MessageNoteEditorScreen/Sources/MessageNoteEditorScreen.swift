@@ -5,6 +5,7 @@ import Display
 import TelegramCore
 import TelegramPresentationData
 import TextFormat
+import BetaFeatures
 
 /// The annotation editor: a popover above the selected text of the message input field, with a tail pointing at it.
 /// The keyboard stays up; focus moves to the annotation's text field.
@@ -419,13 +420,13 @@ private final class MessageNoteEditorNode: ASDisplayNode, UITextViewDelegate, UI
         self.placeholderLabel = UILabel()
         self.placeholderLabel.font = self.baseFont
         self.placeholderLabel.textColor = theme.list.itemPlaceholderTextColor
-        self.placeholderLabel.text = "Add an annotation…"
+        self.placeholderLabel.text = bgramText("Добавьте пояснение…", "Add an annotation…")
         self.placeholderLabel.isUserInteractionEnabled = false
 
-        self.aiButton = RoundButton(image: UIImage(bundleImageName: "Chat/Input/Text/InputAIIcon")?.withRenderingMode(.alwaysTemplate), tintColor: self.accentColor, fillColor: self.accentColor.withAlphaComponent(isDark ? 0.2 : 0.12), accessibilityLabel: "Generate with AI")
+        self.aiButton = RoundButton(image: UIImage(bundleImageName: "Chat/Input/Text/InputAIIcon")?.withRenderingMode(.alwaysTemplate), tintColor: self.accentColor, fillColor: self.accentColor.withAlphaComponent(isDark ? 0.2 : 0.12), accessibilityLabel: bgramText("Сгенерировать с AI", "Generate with AI"))
 
         // A bare glyph in the text colour at 70%, without a fill.
-        self.attachButton = RoundButton(image: generateScaledIcon(UIImage(bundleImageName: "Chat/Attach Menu/Image"), size: CGSize(width: 28.0, height: 28.0)), tintColor: theme.list.itemPrimaryTextColor.withMultipliedAlpha(0.7), fillColor: .clear, accessibilityLabel: "Add photo")
+        self.attachButton = RoundButton(image: generateScaledIcon(UIImage(bundleImageName: "Chat/Attach Menu/Image"), size: CGSize(width: 28.0, height: 28.0)), tintColor: theme.list.itemPrimaryTextColor.withMultipliedAlpha(0.7), fillColor: .clear, accessibilityLabel: bgramText("Добавить фото", "Add photo"))
 
         self.counterLabel = UILabel()
         self.counterLabel.font = Font.with(size: 13.0, traits: .monospacedNumbers)
@@ -450,7 +451,7 @@ private final class MessageNoteEditorNode: ASDisplayNode, UITextViewDelegate, UI
             button.tintColor = .white
             button.backgroundColor = UIColor(white: 0.0, alpha: 0.5)
             button.layer.cornerRadius = 12.0
-            button.accessibilityLabel = "Remove"
+            button.accessibilityLabel = bgramText("Удалить", "Remove")
             return button
         }
         self.mediaRemoveButton = makeRemoveButton()
@@ -478,23 +479,23 @@ private final class MessageNoteEditorNode: ASDisplayNode, UITextViewDelegate, UI
         self.searchingLabel = UILabel()
         self.searchingLabel.font = Font.regular(15.0)
         self.searchingLabel.textColor = theme.list.itemSecondaryTextColor
-        self.searchingLabel.text = "Searching the web…"
+        self.searchingLabel.text = bgramText("Ищу в интернете…", "Searching the web…")
 
         self.statusLabel = UILabel()
         self.statusLabel.font = Font.regular(13.0)
         self.statusLabel.textColor = theme.list.itemSecondaryTextColor
         self.statusLabel.numberOfLines = 2
         self.retryButton = UIButton(type: .system)
-        self.retryButton.setTitle("Retry", for: .normal)
+        self.retryButton.setTitle(bgramText("Повторить", "Retry"), for: .normal)
         self.retryButton.titleLabel?.font = Font.semibold(13.0)
         self.retryButton.tintColor = self.accentColor
 
         self.sourcesLabel = UILabel()
         self.sourcesLabel.font = Font.regular(13.0)
         self.sourcesLabel.textColor = theme.list.itemSecondaryTextColor
-        self.sourcesLabel.text = "Sources"
+        self.sourcesLabel.text = bgramText("Источники", "Sources")
 
-        self.doneButton = RoundButton(image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.0, weight: .semibold)), tintColor: theme.list.itemCheckColors.foregroundColor, fillColor: self.accentColor, accessibilityLabel: "Done")
+        self.doneButton = RoundButton(image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.0, weight: .semibold)), tintColor: theme.list.itemCheckColors.foregroundColor, fillColor: self.accentColor, accessibilityLabel: bgramText("Готово", "Done"))
 
         super.init()
 
@@ -900,7 +901,7 @@ private final class MessageNoteEditorNode: ASDisplayNode, UITextViewDelegate, UI
             if self.currentNote().isEmpty {
                 self.startAI()
             } else {
-                self.actions.confirm("Replace current note?", "Replace", { [weak self] confirmed in
+                self.actions.confirm(bgramText("Заменить текущее пояснение?", "Replace current note?"), bgramText("Заменить", "Replace"), { [weak self] confirmed in
                     if confirmed {
                         self?.startAI()
                     }
@@ -909,7 +910,7 @@ private final class MessageNoteEditorNode: ASDisplayNode, UITextViewDelegate, UI
             }
         case .result:
             if self.textView.text != (self.aiText ?? "") {
-                self.actions.confirm("Replace your edits with a new draft?", "Regenerate", { [weak self] confirmed in
+                self.actions.confirm(bgramText("Заменить правки новым черновиком?", "Replace your edits with a new draft?"), bgramText("Пересоздать", "Regenerate"), { [weak self] confirmed in
                     if confirmed {
                         self?.startAI()
                     }
@@ -966,10 +967,10 @@ private final class MessageNoteEditorNode: ASDisplayNode, UITextViewDelegate, UI
             self.restoreSnapshot()
             switch error {
             case .nothingFound:
-                self.statusText = "Couldn't find anything about \u{201C}\(anchor)\u{201D}"
+                self.statusText = bgramText("Не нашёл ничего про «\(anchor)»", "Couldn't find anything about \u{201C}\(anchor)\u{201D}")
                 self.showsRetry = false
             case .failed:
-                self.statusText = "Something went wrong"
+                self.statusText = bgramText("Что-то пошло не так", "Something went wrong")
                 self.showsRetry = true
             }
         }
@@ -1008,15 +1009,15 @@ private final class MessageNoteEditorNode: ASDisplayNode, UITextViewDelegate, UI
         switch self.aiState {
         case .idle:
             aiImage = UIImage(bundleImageName: "Chat/Input/Text/InputAIIcon")?.withRenderingMode(.alwaysTemplate)
-            self.aiButton.accessibilityLabel = "Generate with AI"
+            self.aiButton.accessibilityLabel = bgramText("Сгенерировать с AI", "Generate with AI")
         case .loading:
             aiImage = UIImage(systemName: "stop.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13.0, weight: .regular))
-            self.aiButton.accessibilityLabel = "Stop"
+            self.aiButton.accessibilityLabel = bgramText("Стоп", "Stop")
         case .result:
             // The regenerate icon of Telegram's own AI text tools.
             // Its 52 pt canvas has wide margins: at 40 pt the arrow is about 17 pt, like the other glyphs.
             aiImage = generateScaledIcon(UIImage(bundleImageName: "TextProcessing/RefreshButton"), size: CGSize(width: 40.0, height: 40.0))
-            self.aiButton.accessibilityLabel = "Regenerate"
+            self.aiButton.accessibilityLabel = bgramText("Пересоздать", "Regenerate")
         }
         if self.displayedAIState != self.aiState {
             if self.displayedAIState == nil {

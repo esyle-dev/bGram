@@ -19,6 +19,7 @@ import WallpaperBackgroundNode
 import InvisibleInkDustNode
 import ChatMessageBubbleItemNode
 import ChatMessageTextBubbleContentNode
+import BetaFeatures
 
 /// What the screenshot editor starts from: the bubbles that were on screen, oldest first.
 /// An album is one item of several messages.
@@ -112,7 +113,7 @@ private func postShareExpandedFont(size: CGFloat) -> UIFont {
 /// as the phone's screen, laid out like the chat itself (its text size, its wallpaper scale) and shown scaled down
 /// to the block: the shared images are cut from that canvas unscaled, so they look like real screenshots.
 /// A swipe to the left (the chat's reply swipe, with a crossed-out eye) removes a message; a text selection offers
-/// "Cut from screenshot", which hides the fragment under a spoiler, or shows it again if it is already cut.
+/// bgramText("Вырезать из скриншота", "Cut from screenshot"), which hides the fragment under a spoiler, or shows it again if it is already cut.
 private final class PostShareMessagesView: UIView, UIScrollViewDelegate {
     private struct Entry {
         var messages: [EngineMessage]
@@ -1067,9 +1068,9 @@ private final class PostShareSheetContentComponent: Component {
             self.updateScreenshotCounts()
 
             // Title, with how the messages split into screenshots.
-            let screenshotsText = self.screenshotCount == 1 ? "1 Screenshot" : "\(self.screenshotCount) Screenshots"
-            let messagesText = self.screenshotMessageCount == 1 ? "1 message" : "\(self.screenshotMessageCount) messages"
-            let titleString = NSMutableAttributedString(string: "Share it beautifully", font: Font.semibold(17.0), textColor: theme.list.itemPrimaryTextColor)
+            let screenshotsText = bgramIsRussian() ? "\(self.screenshotCount) \(bgramPlural(self.screenshotCount, "скриншот", "скриншота", "скриншотов"))" : (self.screenshotCount == 1 ? "1 Screenshot" : "\(self.screenshotCount) Screenshots")
+            let messagesText = bgramIsRussian() ? "\(self.screenshotMessageCount) \(bgramPlural(self.screenshotMessageCount, "сообщение", "сообщения", "сообщений"))" : (self.screenshotMessageCount == 1 ? "1 message" : "\(self.screenshotMessageCount) messages")
+            let titleString = NSMutableAttributedString(string: bgramText("Поделиться красиво", "Share it beautifully"), font: Font.semibold(17.0), textColor: theme.list.itemPrimaryTextColor)
             titleString.append(NSAttributedString(string: "\n\(screenshotsText) with \(messagesText)", font: Font.regular(13.0), textColor: theme.list.itemSecondaryTextColor))
             let titleSize = self.title.update(
                 transition: .immediate,
@@ -1124,7 +1125,7 @@ private final class PostShareSheetContentComponent: Component {
                         pressedColor: theme.list.itemCheckColors.fillColor.withMultipliedAlpha(0.8)
                     ),
                     content: AnyComponentWithIdentity(id: "share", component: AnyComponent(ButtonTextContentComponent(
-                        text: self.screenshotCount == 1 ? "Share Screen" : "Share \(self.screenshotCount) Screens",
+                        text: self.screenshotCount == 1 ? bgramText("Поделиться скриншотом", "Share Screen") : bgramText("Поделиться \(self.screenshotCount) \(bgramPlural(self.screenshotCount, "скриншотом", "скриншотами", "скриншотами"))", "Share \(self.screenshotCount) Screens"),
                         badge: 0,
                         textColor: theme.list.itemCheckColors.foregroundColor,
                         badgeBackground: theme.list.itemCheckColors.foregroundColor,
@@ -1256,7 +1257,7 @@ private final class PostShareSheetComponent: Component {
     }
 }
 
-/// "Share it beautifully": the screenshot editor. Dim messages, cut text, pick a background, share the image.
+/// bgramText("Поделиться красиво", "Share it beautifully"): the screenshot editor. Dim messages, cut text, pick a background, share the image.
 public final class PostShareImageScreen: ViewControllerComponentContainer {
     public init(context: AccountContext, content: PostShareScreenshotContent) {
         super.init(context: context, component: PostShareSheetComponent(

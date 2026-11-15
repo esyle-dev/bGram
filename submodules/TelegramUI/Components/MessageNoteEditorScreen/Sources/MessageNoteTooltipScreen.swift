@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import Display
 import TelegramPresentationData
 import TextFormat
+import BetaFeatures
 
 /// The tooltip of an annotation: a dark bubble above (or below) the tapped anchor line, with the annotation's media,
 /// text, link preview card and AI footer.
@@ -261,7 +262,7 @@ private final class MessageNoteTooltipNode: ASDisplayNode {
         if note.aiGenerated {
             let footer = NSMutableAttributedString(string: "✦ AI", attributes: [.font: Font.medium(12.0), .foregroundColor: secondaryTextColor])
             if !note.sources.isEmpty {
-                footer.append(NSAttributedString(string: " · Sources: ", attributes: [.font: Font.regular(12.0), .foregroundColor: secondaryTextColor]))
+                footer.append(NSAttributedString(string: bgramText(" · Источники: ", " · Sources: "), attributes: [.font: Font.regular(12.0), .foregroundColor: secondaryTextColor]))
                 for (index, source) in note.sources.enumerated() {
                     if index != 0 {
                         footer.append(NSAttributedString(string: ", ", attributes: [.font: Font.regular(12.0), .foregroundColor: secondaryTextColor]))
@@ -304,7 +305,7 @@ private final class MessageNoteTooltipNode: ASDisplayNode {
             if let image = MessageNoteMedia.localImage(id: localImageId) {
                 self.image = image
             } else {
-                self.imagePlaceholderLabel.text = "The photo is only on the sender's device"
+                self.imagePlaceholderLabel.text = bgramText("Фото есть только на устройстве отправителя", "The photo is only on the sender's device")
             }
         } else if let imageUrl = self.note.imageUrl {
             self.isLoadingImage = true
@@ -315,7 +316,7 @@ private final class MessageNoteTooltipNode: ASDisplayNode {
                 self.isLoadingImage = false
                 self.image = image
                 if image == nil {
-                    self.imagePlaceholderLabel.text = "The photo could not be loaded"
+                    self.imagePlaceholderLabel.text = bgramText("Не удалось загрузить фото", "The photo could not be loaded")
                 }
                 self.relayout()
             })

@@ -12,6 +12,9 @@ public enum BetaFeature: String, CaseIterable {
     case timeCapsule
     case unmuteSimilar
     case annotations
+    case topicSwipe
+    case giftArchive
+    case makeOffer
 
     public var key: String {
         return "bgram.beta." + self.rawValue
@@ -32,11 +35,17 @@ public enum BetaFeature: String, CaseIterable {
         case .voiceTranscript:
             return isRussian ? "Транскрипт голосовых" : "Voice Transcript"
         case .timeCapsule:
-            return isRussian ? "Капсула времени" : "Time Capsule"
+            return isRussian ? "Капсула времени (недоступно)" : "Time Capsule (unavailable)"
         case .unmuteSimilar:
             return isRussian ? "Умный звук" : "Unmute Similar"
         case .annotations:
             return isRussian ? "Аннотации" : "Annotations"
+        case .topicSwipe:
+            return isRussian ? "Свайп к непрочитанным" : "Swipe to Unread"
+        case .giftArchive:
+            return isRussian ? "Архив подарков" : "Gift Archive"
+        case .makeOffer:
+            return isRussian ? "Предложить цену" : "Make an Offer"
         }
     }
 
@@ -68,8 +77,8 @@ public enum BetaFeature: String, CaseIterable {
                 : "A transcript sheet for voice messages: synced highlighting, tap-to-seek and an AI summary."
         case .timeCapsule:
             return isRussian
-                ? "Запечатайте сообщение до выбранного срока: до этого момента его не видит никто. Долгое нажатие на «Отправить»."
-                : "Seal a message until a chosen moment: nobody sees it before it opens. Long-press Send to seal."
+                ? "Не работает и выключена: в MTProto нет поля, которым сообщение можно «запечатать» до выбранного времени, — сервер отдал бы его сразу. Раньше это была лишь имитация отложенной отправки. Включим, когда появится серверная поддержка."
+                : "Off and not working: MTProto has no field to seal a message until a chosen moment, so the server would deliver it at once. What shipped was only a stand-in for scheduled delivery. It comes back when the API supports it."
         case .unmuteSimilar:
             return isRussian
                 ? "Уведомления о важных постах в беззвучных каналах — по ключевым словам или типу поста."
@@ -78,6 +87,18 @@ public enum BetaFeature: String, CaseIterable {
             return isRussian
                 ? "Выделите слово в сообщении и прикрепите к нему пояснение — текст, фото или ссылку. Читатель откроет его тапом по слову с точечным подчёркиванием."
                 : "Select a word in your message and attach a note — text, a photo or a link. The reader taps the dotted word to see it."
+        case .topicSwipe:
+            return isRussian
+                ? "Потяните чат вверх у нижнего края: появится ряд непрочитанных чатов текущей папки и превью выбранного — можно листать, не выходя из чата."
+                : "Pull the chat up from the bottom edge: a row of unread chats of the current folder appears with a live preview, so you can switch without leaving."
+        case .giftArchive:
+            return isRussian
+                ? "Вкладка «Архив» в списке подарков профиля: убранные подарки лежат отдельно, их можно вернуть."
+                : "An Archive tab in the profile's gifts: hidden gifts live there and can be brought back."
+        case .makeOffer:
+            return isRussian
+                ? "Предложить свою цену за подарок на чужом профиле: сумма держится в эскроу до ответа владельца."
+                : "Offer your own price for a gift on someone's profile: the amount is held in escrow until the owner answers."
         }
     }
 }
@@ -87,8 +108,22 @@ public final class BetaFeatures {
 
     private static let defaults = UserDefaults.standard
 
+    /// Features that cannot work in this build: the switch is shown but stays off and disabled.
+    public static func isAvailable(_ feature: BetaFeature) -> Bool {
+        switch feature {
+        case .timeCapsule:
+            // MTProto has no "sealed until" field, so a capsule would be delivered at once.
+            return false
+        default:
+            return true
+        }
+    }
+
     /// Every β-feature is on out of the box; the switch in the settings screen turns it off.
     public static func isEnabled(_ feature: BetaFeature) -> Bool {
+        guard self.isAvailable(feature) else {
+            return false
+        }
         if self.defaults.object(forKey: feature.key) == nil {
             return true
         }
@@ -106,4 +141,29 @@ public final class BetaFeatures {
         }
         NotificationCenter.default.post(name: BetaFeatures.didChangeNotification, object: nil)
     }
+}
+
+/// Telegram's own translations arrive from server langpacks, which know nothing about the β-features,
+/// so their text is translated here and picked by the device language: Russian at least, English otherwise.
+public func bgramIsRussian() -> Bool {
+    return (Locale.preferredLanguages.first ?? "en").hasPrefix("ru")
+}
+
+public func bgramText(_ ru: String, _ en: String) -> String {
+    return bgramIsRussian() ? ru : en
+}
+
+public func bgramPlural(_ value: Int, _ one: String, _ few: String, _ many: String) -> String {
+    let mod100 = value % 100
+    let mod10 = value % 10
+    if mod100 >= 11 && mod100 <= 14 {
+        return many
+    }
+    if mod10 == 1 {
+        return one
+    }
+    if mod10 >= 2 && mod10 <= 4 {
+        return few
+    }
+    return many
 }

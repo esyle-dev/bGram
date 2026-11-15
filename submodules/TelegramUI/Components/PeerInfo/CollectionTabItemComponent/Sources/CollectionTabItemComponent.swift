@@ -17,6 +17,7 @@ public final class CollectionTabItemComponent: Component {
     public enum Icon: Equatable {
         case collection(TelegramMediaFile)
         case add
+        case archive
     }
     
     public let context: AccountContext
@@ -105,12 +106,13 @@ public final class CollectionTabItemComponent: Component {
                     }
                     let iconFrame = CGRect(origin: CGPoint(x: iconOffset, y: floorToScreenPixels((titleSize.height - iconSize.height) * 0.5)), size: iconSize)
                     iconLayer.frame = iconFrame
-                case .add:
+                case .add, .archive:
                     iconSize = self.icon.update(
                         transition: .immediate,
                         component: AnyComponent(BundleIconComponent(
-                            name: "Chat/Input/Media/PanelBadgeAdd",
-                            tintColor: component.theme.list.itemPrimaryTextColor
+                            name: icon == .archive ? "Chat List/Search/Archive" : "Chat/Input/Media/PanelBadgeAdd",
+                            tintColor: component.theme.list.itemPrimaryTextColor,
+                            maxSize: icon == .archive ? CGSize(width: 16.0, height: 16.0) : nil
                         )),
                         environment: {},
                         containerSize: CGSize(width: 100.0, height: 100.0)

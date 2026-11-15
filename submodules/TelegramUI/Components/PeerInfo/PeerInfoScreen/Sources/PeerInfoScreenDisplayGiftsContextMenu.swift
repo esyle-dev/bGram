@@ -32,7 +32,9 @@ extension PeerInfoScreenNode {
         }
         
         let isCollection = giftsContext.collectionId != nil
-            
+        // The archive is not a collection: gifts are not added to it from here, and its order is the profile's.
+        let isArchive = pane.currentCollection == .archive
+        
         let strings = self.presentationData.strings
         let items: Signal<ContextController.Items, NoError> = giftsContext.state
         |> map { state in
@@ -65,7 +67,7 @@ extension PeerInfoScreenNode {
                             pane.createCollection()
                         }
                     })))
-                } else {
+                } else if !isArchive {
                     items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_AddGifts, icon: { theme in
                         return generateTintedImage(image: UIImage(bundleImageName: "Peer Info/Gifts/AddGift"), color: theme.contextMenu.primaryColor)
                     }, action: { [weak pane] _, f in
@@ -77,7 +79,7 @@ extension PeerInfoScreenNode {
                     })))
                 }
 
-                if canReorder {
+                if canReorder && !isArchive {
                     items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Reorder, icon: { theme in
                         return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/ReorderItems"), color: theme.contextMenu.primaryColor)
                     }, action: { [weak pane] _, f in

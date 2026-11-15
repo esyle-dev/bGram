@@ -1329,6 +1329,7 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
             strongSelf.isDraggingForOverscrollAction = false
             let expandProgress = strongSelf.currentOverscrollExpandProgress
             strongSelf.currentOverscrollExpandProgress = 0.0
+            if ConceptsTopicSwipe.consumeRelease(listNode: strongSelf) { if expandProgress >= 0.99 { ConceptsTopicSwipe.landing(listNode: strongSelf, hold: { strongSelf.listView.holdOverscrollAction(distance: ChatHistoryListNodeImpl.overscrollActionHoldDistance, movesContent: false) }, land: { [weak strongSelf] in strongSelf?.beginOverscrollActionLanding() }) }; return }
             if strongSelf.offerNextChannelToRead, expandProgress >= 0.99 {
                 if let nextChannelToRead = strongSelf.nextChannelToRead {
                     // A landing may already be running from an earlier release — the control stays at
@@ -2943,7 +2944,9 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
                 environment: {},
                 containerSize: CGSize(width: self.bounds.width, height: 200.0)
             )
+            ConceptsTopicSwipe.overscrollUpdated(listNode: self, chatNode: chatControllerNode, progress: expandProgress, control: overscrollView)
         } else if let overscrollView = self.overscrollView {
+            ConceptsTopicSwipe.overscrollUpdated(listNode: self, chatNode: nil, progress: 0.0, control: nil)
             if self.isDraggingForOverscrollAction, self.listView.holdsOverscrollActionDuringDrag,
                !self.freezeOverscrollControlProgress {
                 self.listView.holdOverscrollAction(distance: 0.0, movesContent: false)

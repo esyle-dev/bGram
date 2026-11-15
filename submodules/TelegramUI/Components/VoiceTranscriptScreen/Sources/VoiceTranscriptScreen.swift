@@ -26,6 +26,7 @@ import LottieSettings
 import SearchBarNode
 import EdgeEffect
 import UndoUI
+import BetaFeatures
 
 // The design colours have no theme variable: 0088FF and 727272 are used as is in the light theme,
 // and the closest theme colours stand in for them in the dark one. Read text is the theme's primary text colour.
@@ -421,7 +422,7 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
         self.innerView.addSubview(self.summaryView)
         self.innerView.addSubview(self.controlsView)
         self.innerView.addSubview(self.syncButton)
-        self.syncButton.configure(title: self.presentationData.strings.VoiceTranscript_Synchronize, textColor: theme.list.itemPrimaryTextColor, isDark: theme.overallDarkAppearance)
+        self.syncButton.configure(title: self.presentationData.bgramText("Синхронизировать", strings.VoiceTranscript_Synchronize), textColor: theme.list.itemPrimaryTextColor, isDark: theme.overallDarkAppearance)
         self.syncButton.pressed = { [weak self] in
             self?.transcriptView.resumeFollowing()
         }
@@ -850,13 +851,13 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
             // A reply to the whole voice message.
             self?.requestReply(messageId, nil)
         })))
-        items.append(.action(ContextMenuActionItem(text: strings.VoiceTranscript_CopyTranscript, textColor: hasTranscript ? .primary : .disabled, icon: icon("Chat/Context Menu/Copy"), action: { _, f in
+        items.append(.action(ContextMenuActionItem(text: bgramText("Скопировать транскрипт", strings.VoiceTranscript_CopyTranscript), textColor: hasTranscript ? .primary : .disabled, icon: icon("Chat/Context Menu/Copy"), action: { _, f in
             f(.default)
             if hasTranscript {
                 UIPasteboard.general.string = transcriptText
             }
         })))
-        items.append(.action(ContextMenuActionItem(text: strings.VoiceTranscript_TranslateTranscript, textColor: hasTranscript ? .primary : .disabled, icon: icon("Chat/Context Menu/Translate"), action: { [weak self] _, f in
+        items.append(.action(ContextMenuActionItem(text: bgramText("Перевести транскрипт", strings.VoiceTranscript_TranslateTranscript), textColor: hasTranscript ? .primary : .disabled, icon: icon("Chat/Context Menu/Translate"), action: { [weak self] _, f in
             f(.default)
             guard hasTranscript else {
                 return
@@ -877,13 +878,13 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
             })
         })))
         items.append(.separator)
-        items.append(.action(ContextMenuActionItem(text: strings.VoiceTranscript_NextVoice, textColor: self.hasNextVoice ? .primary : .disabled, icon: symbolIcon("forward.end"), action: { [weak self] _, f in
+        items.append(.action(ContextMenuActionItem(text: bgramText("Следующее голосовое", strings.VoiceTranscript_NextVoice), textColor: self.hasNextVoice ? .primary : .disabled, icon: symbolIcon("forward.end"), action: { [weak self] _, f in
             f(.default)
             if self?.hasNextVoice == true {
                 mediaManager.playlistControl(.next, type: .voice)
             }
         })))
-        items.append(.action(ContextMenuActionItem(text: strings.VoiceTranscript_PreviousVoice, textColor: self.hasPreviousVoice ? .primary : .disabled, icon: symbolIcon("backward.end"), action: { [weak self] _, f in
+        items.append(.action(ContextMenuActionItem(text: bgramText("Предыдущее голосовое", strings.VoiceTranscript_PreviousVoice), textColor: self.hasPreviousVoice ? .primary : .disabled, icon: symbolIcon("backward.end"), action: { [weak self] _, f in
             f(.default)
             if self?.hasPreviousVoice == true {
                 mediaManager.playlistControl(.previous, type: .voice)
@@ -1442,7 +1443,7 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
                     HorizontalTabsComponent.Tab(
                         id: AnyHashable(Tab.transcript.rawValue),
                         content: .custom(AnyComponent(VoiceTranscriptTabContentComponent(
-                            title: self.presentationData.strings.VoiceTranscript_Transcript,
+                            title: self.presentationData.bgramText("Транскрипт", strings.VoiceTranscript_Transcript),
                             usesTranscriptGlyph: true,
                             iconSymbol: nil,
                             iconColor: self.selectedTab == .transcript ? voiceTranscriptBlue(theme) : theme.list.itemPrimaryTextColor,
@@ -1456,7 +1457,7 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
                     HorizontalTabsComponent.Tab(
                         id: AnyHashable(Tab.summary.rawValue),
                         content: .custom(AnyComponent(VoiceTranscriptTabContentComponent(
-                            title: self.presentationData.strings.VoiceTranscript_AISummary,
+                            title: self.presentationData.bgramText("AI-конспект", strings.VoiceTranscript_AISummary),
                             usesTranscriptGlyph: false,
                             iconSymbol: "sparkles",
                             iconColor: self.selectedTab == .summary ? voiceTranscriptBlue(theme) : theme.list.itemPrimaryTextColor,
@@ -2358,7 +2359,7 @@ private final class VoiceTranscriptListView: UIView, UIScrollViewDelegate, UIGes
             self.placeholderLabel.isHidden = true
             self.skeletonNode.view.isHidden = false
         case .unavailable:
-            self.placeholderLabel.text = self.unavailableMessage ?? self.presentationData?.strings.VoiceTranscript_TranscriptUnavailable ?? "Transcript is not available for this voice message"
+            self.placeholderLabel.text = self.unavailableMessage ?? self.presentationData?.bgramText("Транскрипт для этого голосового недоступен", strings.VoiceTranscript_TranscriptUnavailable) ?? "Transcript is not available for this voice message"
             self.placeholderLabel.isHidden = false
             self.skeletonNode.view.isHidden = true
         case nil:
@@ -3243,16 +3244,16 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
             parts.append(summary.headline)
         }
         if !summary.keyPoints.isEmpty {
-            parts.append(self.strings.VoiceTranscript_KeyPoints + "\n" + summary.keyPoints.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
+            parts.append(self.bgramText("Главное", strings.VoiceTranscript_KeyPoints) + "\n" + summary.keyPoints.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
         }
         if !summary.tasks.isEmpty {
-            parts.append(self.strings.VoiceTranscript_Tasks + "\n" + summary.tasks.enumerated().map { index, task in
+            parts.append(self.bgramText("Задачи", strings.VoiceTranscript_Tasks) + "\n" + summary.tasks.enumerated().map { index, task in
                 let isDone = index < self.taskStates.count ? self.taskStates[index] : task.isCompleted
                 return (isDone ? "\u{2611} " : "\u{2610} ") + task.text
             }.joined(separator: "\n"))
         }
         if !summary.questions.isEmpty {
-            parts.append(self.strings.VoiceTranscript_Questions + "\n" + summary.questions.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
+            parts.append(self.bgramText("Вопросы", strings.VoiceTranscript_Questions) + "\n" + summary.questions.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
         }
         return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
@@ -3394,7 +3395,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
         label.numberOfLines = 0
         label.frame = CGRect(origin: CGPoint(), size: self.fullHeadlineSize)
         UIView.performWithoutAnimation {
-            self.headlineMoreButton?.setTitle(expanded ? self.strings.VoiceTranscript_Less : self.strings.VoiceTranscript_More, for: .normal)
+            self.headlineMoreButton?.setTitle(expanded ? self.bgramText("свернуть", strings.VoiceTranscript_Less) : self.bgramText("ещё", strings.VoiceTranscript_More), for: .normal)
             self.headlineMoreButton?.layoutIfNeeded()
         }
         let contentHeight = self.scrollView.contentSize.height
@@ -3451,7 +3452,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
         y += headlineSize.height + 6.0
 
         let moreWidth: CGFloat = isHeadlineLong ? 60.0 : 0.0
-        let source = self.label(self.strings.VoiceTranscript_SummarySource, font: Font.regular(15.0), color: self.theme.list.itemSecondaryTextColor)
+        let source = self.label(self.bgramText("Конспект Cocoon AI", strings.VoiceTranscript_SummarySource), font: Font.regular(15.0), color: self.theme.list.itemSecondaryTextColor)
         source.frame = CGRect(origin: CGPoint(x: sideInset + 4.0, y: y), size: CGSize(width: innerWidth - moreWidth, height: 20.0))
         self.scrollView.addSubview(source)
         if isHeadlineLong {
@@ -3486,7 +3487,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
             y = self.addCard(title: self.strings.VoiceTranscript_KeyPoints, y: y, innerWidth: innerWidth, sideInset: sideInset, rows: summary.keyPoints.map { point in
                 return Row(text: point.text, time: point.time, taskIndex: nil, showsMenu: true)
             })
-            finishSection(hint: self.strings.VoiceTranscript_ItemsHint)
+            finishSection(hint: self.bgramText("Тап по времени — переход к этому месту. Тап по тексту — ответ в чате или копирование.", strings.VoiceTranscript_ItemsHint))
         }
 
         if !summary.tasks.isEmpty {
@@ -3499,7 +3500,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
                     return (isDone ? "\u{2611} " : "\u{2610} ") + task.text
                 }.joined(separator: "\n")
             })
-            finishSection(hint: self.strings.VoiceTranscript_TasksHint)
+            finishSection(hint: self.bgramText("Тап по задаче отмечает её выполненной.", strings.VoiceTranscript_TasksHint))
         }
 
         if !summary.questions.isEmpty {
@@ -3516,7 +3517,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
         for view in self.scrollView.subviews {
             view.removeFromSuperview()
         }
-        var message = self.strings.VoiceTranscript_SummaryUnavailable
+        var message = self.bgramText("Конспект для этого голосового недоступен", strings.VoiceTranscript_SummaryUnavailable)
         #if DEBUG
         if let reason = voiceSummaryDebugReason {
             message += "\n\n[debug] " + reason
@@ -3691,7 +3692,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
             guard let self else {
                 return
             }
-            progressLabel?.text = self.strings.VoiceTranscript_TasksCompleted("\(self.taskStates.filter { $0 }.count)", "\(self.taskStates.count)").string
+            progressLabel?.text = self.bgramText("%1$@ из %2$@ выполнено", strings.VoiceTranscript_TasksCompleted)("\(self.taskStates.filter { $0 }.count)", "\(self.taskStates.count)").string
         }
         updateProgress()
 

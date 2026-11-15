@@ -381,6 +381,11 @@ public final class GiftItemComponent: Component {
             return nil
         }
         
+        /// The gift's sticker, for a transition that moves it on its own, without the cell's background.
+        public var stickerLayer: CALayer? {
+            return self.animationLayer
+        }
+        
         override init(frame: CGRect) {
             super.init(frame: frame)
             
