@@ -5204,7 +5204,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         // A note travels as a hidden link, so it reaches exactly the text a link reaches.
         let currentLink = richTextInputNode.currentRichTextLinkURL()
         let isEditingNote = currentLink.flatMap({ MessageNoteContent.isNoteUrl($0) }) ?? false
-        let canAddNote = richTextInputNode.canPerformFormatAction(.bold) && (currentLink == nil || isEditingNote)
+        let canAddNote = richTextInputNode.selectedRange.length > 0 && (currentLink == nil || isEditingNote)
         children.append(UIAction(title: "Annotations", image: nil,
                                  attributes: canAddNote ? [] : .disabled) { [weak self] _ in
             self?.interfaceInteraction?.openNoteEditing()
@@ -6006,9 +6006,8 @@ private final class AgentChipMenuReferenceSource: ContextReferenceContentSource 
     func transitionInfo() -> ContextControllerReferenceViewInfo? {
         return ContextControllerReferenceViewInfo(
             referenceView: self.sourceView,
-            contentAreaInScreenSpace: mainWindowScreenBounds,
-            actionsPosition: .top,
-            morphedActionsAlignment: .leading
+            contentAreaInScreenSpace: UIScreen.main.bounds,
+            actionsPosition: .top
         )
     }
 }
