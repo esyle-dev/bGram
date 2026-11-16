@@ -2320,9 +2320,6 @@ final class RichTextAttachmentScreenComponent: Component {
             // The editor no longer tracks the keyboard; supply the bottom obstruction as a scroll inset.
             // Only one of (system keyboard / emoji panel) is up at a time (the emoji panel uses an
             // EmptyInputView, so inputHeight ≈ 0 while it shows); the home-indicator safe area is the floor.
-            let editorInsets = UIEdgeInsets(top: editorTop, left: 0.0, bottom: bottomInset + 16.0, right: 0.0)
-            let editorMargins = UIEdgeInsets(top: 12.0 + collaborationHeaderHeight, left: 0.0, bottom: 12.0, right: 0.0)
-            self.appliedEditorLayout = (editorFrame.size, editorInsets, editorMargins)
             _ = self.editor.update(size: editorFrame.size,
                                    insets: UIEdgeInsets(top: editorTop, left: 0.0, bottom: bottomInset + 16.0, right: 0.0),
                                    contentMargins: UIEdgeInsets(top: 12.0, left: 0.0, bottom: 12.0, right: 0.0))

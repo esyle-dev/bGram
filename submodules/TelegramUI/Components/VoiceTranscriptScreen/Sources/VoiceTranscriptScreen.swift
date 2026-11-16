@@ -2359,7 +2359,7 @@ private final class VoiceTranscriptListView: UIView, UIScrollViewDelegate, UIGes
             self.placeholderLabel.isHidden = true
             self.skeletonNode.view.isHidden = false
         case .unavailable:
-            self.placeholderLabel.text = self.unavailableMessage ?? self.presentationData?.bgramText("Транскрипт для этого голосового недоступен", strings.VoiceTranscript_TranscriptUnavailable) ?? "Transcript is not available for this voice message"
+            self.placeholderLabel.text = self.unavailableMessage ?? bgramText("Транскрипт для этого голосового недоступен", self.presentationData?.strings.VoiceTranscript_TranscriptUnavailable ?? "Transcript is not available for this voice message")
             self.placeholderLabel.isHidden = false
             self.skeletonNode.view.isHidden = true
         case nil:
@@ -3692,7 +3692,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
             guard let self else {
                 return
             }
-            progressLabel?.text = bgramText("%1$@ из %2$@ выполнено", self.strings.VoiceTranscript_TasksCompleted)("\(self.taskStates.filter { $0 }.count)", "\(self.taskStates.count)").string
+            progressLabel?.text = bgramText("%1$@ из %2$@ выполнено", self.strings.VoiceTranscript_TasksCompleted("\(self.taskStates.filter { $0 }.count)", "\(self.taskStates.count)").string)
         }
         updateProgress()
 
