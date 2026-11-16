@@ -246,7 +246,7 @@ private final class SharedMessageVersionsSheetComponent: Component {
                         metrics: environment.metrics,
                         deviceMetrics: environment.deviceMetrics,
                         isDisplaying: environment.isVisible,
-                        isCentered: environment.presentsFloatingPanels,
+                        isCentered: false,
                         screenSize: availableSize,
                         regularMetricsSize: nil,
                         dismiss: { animated in

@@ -96,7 +96,7 @@ private func presentSharedMessageEditor(
     shared: SharedMessageAttribute,
     session: SharedEditingSession,
     editorIds: [EnginePeer.Id],
-    content: (document: Document, media: [String: EngineMedia], emojiFiles: [Int64: TelegramMediaFile]),
+    content: (document: Document, media: [String: any Media], emojiFiles: [Int64: TelegramMediaFile]),
     presentAttachmentMenu: ((_ request: RichTextAttachmentScreen.MediaRequest, @escaping ([RichTextAttachmentScreen.RichTextAttachment]) -> Void) -> Void)?,
     presentFormulaEditor: ((_ initialValue: String?, _ completion: @escaping (String) -> Void) -> Void)?,
     replyInChat: ((_ messageId: EngineMessage.Id, _ text: String) -> Void)?
@@ -373,7 +373,7 @@ private final class SharedMessageEditorNotices {
 }
 
 /// The message as an editor document: a rich message through its page, a plain one through its text and entities.
-func sharedMessageEditorContent(message: EngineMessage) -> (document: Document, media: [String: EngineMedia], emojiFiles: [Int64: TelegramMediaFile]) {
+func sharedMessageEditorContent(message: EngineMessage) -> (document: Document, media: [String: any Media], emojiFiles: [Int64: TelegramMediaFile]) {
     let content: ChatInputContent
     if let richText = message.attributes.first(where: { $0 is RichTextMessageAttribute }) as? RichTextMessageAttribute {
         content = chatInputContent(fromInstantPage: richText.instantPage)
@@ -392,7 +392,7 @@ final class SharedMessageVersionsReferenceSource: ContextReferenceContentSource 
     }
 
     func transitionInfo() -> ContextControllerReferenceViewInfo? {
-        return ContextControllerReferenceViewInfo(referenceView: self.sourceView, contentAreaInScreenSpace: mainWindowScreenBounds)
+        return ContextControllerReferenceViewInfo(referenceView: self.sourceView, contentAreaInScreenSpace: UIScreen.main.bounds)
     }
 }
 

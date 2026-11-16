@@ -247,7 +247,7 @@ public enum SharedMessageRoom {
     }
 
     /// Writes the current document into the real message, keeping the marker line. Only the author can.
-    static func saveToMessage(context: AccountContext, message: EngineMessage, attribute: SharedMessageAttribute, document: Document, media: [String: EngineMedia]) -> Signal<Never, NoError> {
+    static func saveToMessage(context: AccountContext, message: EngineMessage, attribute: SharedMessageAttribute, document: Document, media: [String: any Media]) -> Signal<Never, NoError> {
         let markerURL = attribute.markerURL
         let request: Signal<RequestEditMessageResult, RequestEditMessageError>
         switch composeRichMessage(from: document, media: media, forSendPreview: true) {
