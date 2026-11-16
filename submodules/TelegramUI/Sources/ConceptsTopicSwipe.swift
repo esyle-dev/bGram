@@ -1278,7 +1278,7 @@ final class ConceptsTopicSwipeSession: NSObject {
     }
 
     private func fallbackLayout(size: CGSize) -> ContainerViewLayout {
-        return ContainerViewLayout(size: size, metrics: LayoutMetrics(widthClass: .compact, heightClass: .compact, orientation: nil), deviceMetrics: .iPhone16Pro, intrinsicInsets: UIEdgeInsets(), safeInsets: UIEdgeInsets(), reservedCorners: .none, division: nil, additionalInsets: UIEdgeInsets(), statusBarHeight: nil, inputHeight: nil, inputHeightIsInteractivellyChanging: false, inVoiceOver: false, presentedInFormSheet: false)
+        return ContainerViewLayout(size: size, metrics: LayoutMetrics(widthClass: .compact, heightClass: .compact, orientation: nil), deviceMetrics: .iPhone16Pro, intrinsicInsets: UIEdgeInsets(), safeInsets: UIEdgeInsets(), additionalInsets: UIEdgeInsets(), statusBarHeight: nil, inputHeight: nil, inputHeightIsInteractivellyChanging: false, inVoiceOver: false, presentedInFormSheet: false)
     }
 }
 
@@ -2191,7 +2191,7 @@ private final class ConceptsTopicSwipePanel: UIView, UIGestureRecognizerDelegate
 
     /// Раскладка карточки без строки состояния: родная шапка чата рисуется сверху, как в предпросмотре чата из списка.
     private func previewLayout(size: CGSize) -> ContainerViewLayout {
-        return ContainerViewLayout(size: size, metrics: LayoutMetrics(widthClass: .compact, heightClass: .compact, orientation: nil), deviceMetrics: self.layout.deviceMetrics, intrinsicInsets: UIEdgeInsets(), safeInsets: UIEdgeInsets(), reservedCorners: .none, division: nil, additionalInsets: UIEdgeInsets(), statusBarHeight: nil, inputHeight: nil, inputHeightIsInteractivellyChanging: false, inVoiceOver: false, presentedInFormSheet: false)
+        return ContainerViewLayout(size: size, metrics: LayoutMetrics(widthClass: .compact, heightClass: .compact, orientation: nil), deviceMetrics: self.layout.deviceMetrics, intrinsicInsets: UIEdgeInsets(), safeInsets: UIEdgeInsets(), additionalInsets: UIEdgeInsets(), statusBarHeight: nil, inputHeight: nil, inputHeightIsInteractivellyChanging: false, inVoiceOver: false, presentedInFormSheet: false)
     }
 
     private func layoutPreview(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -2461,7 +2461,8 @@ private final class ConceptsTopicSwipePanel: UIView, UIGestureRecognizerDelegate
         let (title, subtitle, subtitleIsActive) = self.headerText(for: self.isListSelected ? nil : self.selectedCandidate)
         if self.selectedCandidate != nil, !self.isListSelected {
             if let native = self.nativeTitle(self.currentPreview) {
-                if let pill = native.glassPillFrame, native.window != nil {
+                if native.window != nil {
+                    let pill = native.bounds
                     self.headerPillCenter = native.convert(CGPoint(x: pill.midX, y: pill.midY), to: self.cardClip)
                 }
                 // Родную капсулу прячем, только когда копия знает, где встать (иначе карточка осталась бы без шапки).
@@ -4094,7 +4095,8 @@ private final class ConceptsTopicSwipePanel: UIView, UIGestureRecognizerDelegate
         // v22: капсула карточки к этому моменту ещё доезжает до места родной — подпись настоящей шапки встаёт туда,
         // где капсула сейчас, и доезжает тем же ходом (было: подпись появлялась на 3 pt выше — шапка «дёргалась»).
         var pillOffset: CGPoint?
-        if !self.openedFromList, let title = chat.chatTitleView, let pill = title.glassPillFrame, let presentation = self.headerTitle.layer.presentation() {
+        if !self.openedFromList, let title = chat.chatTitleView, let presentation = self.headerTitle.layer.presentation() {
+            let pill = title.bounds
             let current = presentation.convert(presentation.bounds, to: nil)
             let target = title.convert(pill, to: nil)
             pillOffset = CGPoint(x: current.midX - target.midX, y: current.midY - target.midY)
@@ -4370,7 +4372,8 @@ private final class ConceptsTopicSwipePanel: UIView, UIGestureRecognizerDelegate
         self.layoutPreview(self.layout.withUpdatedIntrinsicInsets(insets), transition: transition)
         zmark("layout")
         // Капсула шапки едет вместе с раскрытием к месту и ширине родной (её рамка уже конечная), затем перетекает в неё.
-        if !wasList, let native = self.nativeTitle(self.currentPreview), let pill = native.glassPillFrame {
+        if !wasList, let native = self.nativeTitle(self.currentPreview) {
+            let pill = native.bounds
             let target = native.convert(pill, to: self.cardClip)
             // v22: и место, и ширина — пружиной раскрытия, без отскока: с отскоком ширина капсулы «дрыгалась».
             self.headerTitle.morph(to: target, transition: ComponentTransition(transition), positionTransition: ComponentTransition(transition))
