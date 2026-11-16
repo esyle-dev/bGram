@@ -5,6 +5,7 @@ import AccountContext
 import RichTextEditorCore
 import RichTextEditorMessageConversion
 import ChatRichTextEditorComposer
+import Postbox
 
 /// `then` needs both sides to carry the same value type; this runs `next` after a value-less signal completes.
 private func afterCompletion<T, E>(_ signal: Signal<Never, E>, _ next: Signal<T, E>) -> Signal<T, E> {

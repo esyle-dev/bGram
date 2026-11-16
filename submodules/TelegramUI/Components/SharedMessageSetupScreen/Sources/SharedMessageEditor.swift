@@ -17,6 +17,7 @@ import RichTextEditorCore
 import RichTextAttachmentScreen
 import ChatRichTextEditorComposer
 import RichTextEditorMessageConversion
+import Postbox
 
 /// The editor palette: one colour per editor, by order of first participation.
 private let sharedEditorColors: [UInt32] = [0xf09a37, 0x4fb256, 0x8b5cf6, 0xe5533d, 0x3b82f6, 0x14b8a6, 0xec4899]
