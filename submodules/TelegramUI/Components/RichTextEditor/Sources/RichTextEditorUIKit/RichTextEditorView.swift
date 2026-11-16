@@ -8,7 +8,7 @@ import RichTextEditorCore
 public final class RichTextEditorView: UIView, UIScrollViewDelegate {
     // Module-internal (was private) so `+CollaborationHost` can hand it to a host as the content host view.
     let scrollView = GripYieldingScrollView()
-    let canvas: DocumentCanvasView
+    let canvas = DocumentCanvasView()
 
     /// Floor for the content height returned by `update(...)`/`performLayout`. Defaults to 44pt (a document
     /// editor wants a tappable minimum body). A compact host (e.g. the chat composer) sets it to 0 so the

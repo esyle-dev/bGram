@@ -422,7 +422,7 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
         self.innerView.addSubview(self.summaryView)
         self.innerView.addSubview(self.controlsView)
         self.innerView.addSubview(self.syncButton)
-        self.syncButton.configure(title: self.presentationData.bgramText("Синхронизировать", strings.VoiceTranscript_Synchronize), textColor: theme.list.itemPrimaryTextColor, isDark: theme.overallDarkAppearance)
+        self.syncButton.configure(title: bgramText("Синхронизировать", self.presentationData.strings.VoiceTranscript_Synchronize), textColor: theme.list.itemPrimaryTextColor, isDark: theme.overallDarkAppearance)
         self.syncButton.pressed = { [weak self] in
             self?.transcriptView.resumeFollowing()
         }
@@ -1443,7 +1443,7 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
                     HorizontalTabsComponent.Tab(
                         id: AnyHashable(Tab.transcript.rawValue),
                         content: .custom(AnyComponent(VoiceTranscriptTabContentComponent(
-                            title: self.presentationData.bgramText("Транскрипт", strings.VoiceTranscript_Transcript),
+                            title: bgramText("Транскрипт", self.presentationData.strings.VoiceTranscript_Transcript),
                             usesTranscriptGlyph: true,
                             iconSymbol: nil,
                             iconColor: self.selectedTab == .transcript ? voiceTranscriptBlue(theme) : theme.list.itemPrimaryTextColor,
@@ -1457,7 +1457,7 @@ private final class VoiceTranscriptScreenNode: ViewControllerTracingNode, UIGest
                     HorizontalTabsComponent.Tab(
                         id: AnyHashable(Tab.summary.rawValue),
                         content: .custom(AnyComponent(VoiceTranscriptTabContentComponent(
-                            title: self.presentationData.bgramText("AI-конспект", strings.VoiceTranscript_AISummary),
+                            title: bgramText("AI-конспект", self.presentationData.strings.VoiceTranscript_AISummary),
                             usesTranscriptGlyph: false,
                             iconSymbol: "sparkles",
                             iconColor: self.selectedTab == .summary ? voiceTranscriptBlue(theme) : theme.list.itemPrimaryTextColor,
@@ -3244,16 +3244,16 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
             parts.append(summary.headline)
         }
         if !summary.keyPoints.isEmpty {
-            parts.append(self.bgramText("Главное", strings.VoiceTranscript_KeyPoints) + "\n" + summary.keyPoints.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
+            parts.append(bgramText("Главное", self.strings.VoiceTranscript_KeyPoints) + "\n" + summary.keyPoints.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
         }
         if !summary.tasks.isEmpty {
-            parts.append(self.bgramText("Задачи", strings.VoiceTranscript_Tasks) + "\n" + summary.tasks.enumerated().map { index, task in
+            parts.append(bgramText("Задачи", self.strings.VoiceTranscript_Tasks) + "\n" + summary.tasks.enumerated().map { index, task in
                 let isDone = index < self.taskStates.count ? self.taskStates[index] : task.isCompleted
                 return (isDone ? "\u{2611} " : "\u{2610} ") + task.text
             }.joined(separator: "\n"))
         }
         if !summary.questions.isEmpty {
-            parts.append(self.bgramText("Вопросы", strings.VoiceTranscript_Questions) + "\n" + summary.questions.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
+            parts.append(bgramText("Вопросы", self.strings.VoiceTranscript_Questions) + "\n" + summary.questions.map { "\(formatVoiceTranscriptTime($0.time)) \u{2014} \($0.text)" }.joined(separator: "\n"))
         }
         return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
@@ -3395,7 +3395,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
         label.numberOfLines = 0
         label.frame = CGRect(origin: CGPoint(), size: self.fullHeadlineSize)
         UIView.performWithoutAnimation {
-            self.headlineMoreButton?.setTitle(expanded ? self.bgramText("свернуть", strings.VoiceTranscript_Less) : self.bgramText("ещё", strings.VoiceTranscript_More), for: .normal)
+            self.headlineMoreButton?.setTitle(expanded ? bgramText("свернуть", self.strings.VoiceTranscript_Less) : bgramText("ещё", self.strings.VoiceTranscript_More), for: .normal)
             self.headlineMoreButton?.layoutIfNeeded()
         }
         let contentHeight = self.scrollView.contentSize.height
@@ -3452,13 +3452,13 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
         y += headlineSize.height + 6.0
 
         let moreWidth: CGFloat = isHeadlineLong ? 60.0 : 0.0
-        let source = self.label(self.bgramText("Конспект Cocoon AI", strings.VoiceTranscript_SummarySource), font: Font.regular(15.0), color: self.theme.list.itemSecondaryTextColor)
+        let source = self.label(bgramText("Конспект Cocoon AI", self.strings.VoiceTranscript_SummarySource), font: Font.regular(15.0), color: self.theme.list.itemSecondaryTextColor)
         source.frame = CGRect(origin: CGPoint(x: sideInset + 4.0, y: y), size: CGSize(width: innerWidth - moreWidth, height: 20.0))
         self.scrollView.addSubview(source)
         if isHeadlineLong {
             let moreButton = UIButton(type: .system)
             moreButton.titleLabel?.font = Font.regular(15.0)
-            moreButton.setTitle(self.isHeadlineExpanded ? self.strings.VoiceTranscript_Less : self.strings.VoiceTranscript_More, for: .normal)
+            moreButton.setTitle(self.isHeadlineExpanded ? bgramText("свернуть", self.strings.VoiceTranscript_Less) : bgramText("ещё", self.strings.VoiceTranscript_More), for: .normal)
             moreButton.tintColor = voiceTranscriptBlue(self.theme)
             moreButton.contentHorizontalAlignment = .right
             moreButton.frame = CGRect(x: sideInset + innerWidth - moreWidth, y: y - 4.0, width: moreWidth, height: 28.0)
@@ -3484,14 +3484,14 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
 
         // Each kind appears only when the summary has something of it. The order is key points, tasks, questions.
         if !summary.keyPoints.isEmpty {
-            y = self.addCard(title: self.strings.VoiceTranscript_KeyPoints, y: y, innerWidth: innerWidth, sideInset: sideInset, rows: summary.keyPoints.map { point in
+            y = self.addCard(title: bgramText("Главное", self.strings.VoiceTranscript_KeyPoints), y: y, innerWidth: innerWidth, sideInset: sideInset, rows: summary.keyPoints.map { point in
                 return Row(text: point.text, time: point.time, taskIndex: nil, showsMenu: true)
             })
-            finishSection(hint: self.bgramText("Тап по времени — переход к этому месту. Тап по тексту — ответ в чате или копирование.", strings.VoiceTranscript_ItemsHint))
+            finishSection(hint: bgramText("Тап по времени — переход к этому месту. Тап по тексту — ответ в чате или копирование.", self.strings.VoiceTranscript_ItemsHint))
         }
 
         if !summary.tasks.isEmpty {
-            y = self.addCard(title: self.strings.VoiceTranscript_Tasks, y: y, innerWidth: innerWidth, sideInset: sideInset, rows: summary.tasks.enumerated().map { index, task in
+            y = self.addCard(title: bgramText("Задачи", self.strings.VoiceTranscript_Tasks), y: y, innerWidth: innerWidth, sideInset: sideInset, rows: summary.tasks.enumerated().map { index, task in
                 return Row(text: task.text, time: nil, taskIndex: index)
             }, copyText: { [weak self] in
                 // The tasks as they are ticked now.
@@ -3500,14 +3500,14 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
                     return (isDone ? "\u{2611} " : "\u{2610} ") + task.text
                 }.joined(separator: "\n")
             })
-            finishSection(hint: self.bgramText("Тап по задаче отмечает её выполненной.", strings.VoiceTranscript_TasksHint))
+            finishSection(hint: bgramText("Тап по задаче отмечает её выполненной.", self.strings.VoiceTranscript_TasksHint))
         }
 
         if !summary.questions.isEmpty {
-            y = self.addCard(title: self.strings.VoiceTranscript_Questions, y: y, innerWidth: innerWidth, sideInset: sideInset, rows: summary.questions.map { question in
+            y = self.addCard(title: bgramText("Вопросы", self.strings.VoiceTranscript_Questions), y: y, innerWidth: innerWidth, sideInset: sideInset, rows: summary.questions.map { question in
                 return Row(text: question.text, time: question.time, taskIndex: nil, isQuestion: true, showsMenu: true)
             })
-            finishSection(hint: self.strings.VoiceTranscript_ItemsHint)
+            finishSection(hint: bgramText("Тап по времени — переход к этому месту. Тап по тексту — ответ в чате или копирование.", self.strings.VoiceTranscript_ItemsHint))
         }
 
         self.scrollView.contentSize = CGSize(width: width, height: y + 80.0 + self.validBottomInset)
@@ -3517,7 +3517,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
         for view in self.scrollView.subviews {
             view.removeFromSuperview()
         }
-        var message = self.bgramText("Конспект для этого голосового недоступен", strings.VoiceTranscript_SummaryUnavailable)
+        var message = bgramText("Конспект для этого голосового недоступен", self.strings.VoiceTranscript_SummaryUnavailable)
         #if DEBUG
         if let reason = voiceSummaryDebugReason {
             message += "\n\n[debug] " + reason
@@ -3560,20 +3560,20 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
         }
         y += headlineLine * 3.0 + 6.0
 
-        let source = self.label(self.strings.VoiceTranscript_SummarySource, font: Font.regular(15.0), color: self.theme.list.itemSecondaryTextColor)
+        let source = self.label(bgramText("Конспект Cocoon AI", self.strings.VoiceTranscript_SummarySource), font: Font.regular(15.0), color: self.theme.list.itemSecondaryTextColor)
         source.frame = CGRect(origin: CGPoint(x: sideInset + 4.0, y: y), size: CGSize(width: innerWidth, height: 20.0))
         self.scrollView.addSubview(source)
         y += 20.0 + 32.0
 
-        y = self.addSkeletonCard(title: self.strings.VoiceTranscript_KeyPoints, y: y, innerWidth: innerWidth, sideInset: sideInset, rows: [
+        y = self.addSkeletonCard(title: bgramText("Главное", self.strings.VoiceTranscript_KeyPoints), y: y, innerWidth: innerWidth, sideInset: sideInset, rows: [
             SkeletonRow(lead: .time, lines: [1.0, 0.6]),
             SkeletonRow(lead: .time, lines: [0.9, 0.5])
         ], shapes: &shapes)
-        y = self.addSkeletonCard(title: self.strings.VoiceTranscript_Tasks, y: y, innerWidth: innerWidth, sideInset: sideInset, rows: [
+        y = self.addSkeletonCard(title: bgramText("Задачи", self.strings.VoiceTranscript_Tasks), y: y, innerWidth: innerWidth, sideInset: sideInset, rows: [
             SkeletonRow(lead: .checkbox, lines: [1.0, 0.7]),
             SkeletonRow(lead: .checkbox, lines: [0.8])
         ], shapes: &shapes)
-        y = self.addSkeletonCard(title: self.strings.VoiceTranscript_Questions, y: y, innerWidth: innerWidth, sideInset: sideInset, rows: [
+        y = self.addSkeletonCard(title: bgramText("Вопросы", self.strings.VoiceTranscript_Questions), y: y, innerWidth: innerWidth, sideInset: sideInset, rows: [
             SkeletonRow(lead: .time, lines: [0.9, 0.4])
         ], shapes: &shapes)
 
@@ -3692,7 +3692,7 @@ private final class VoiceSummaryView: UIView, UIScrollViewDelegate {
             guard let self else {
                 return
             }
-            progressLabel?.text = self.bgramText("%1$@ из %2$@ выполнено", strings.VoiceTranscript_TasksCompleted)("\(self.taskStates.filter { $0 }.count)", "\(self.taskStates.count)").string
+            progressLabel?.text = bgramText("%1$@ из %2$@ выполнено", self.strings.VoiceTranscript_TasksCompleted)("\(self.taskStates.filter { $0 }.count)", "\(self.taskStates.count)").string
         }
         updateProgress()
 

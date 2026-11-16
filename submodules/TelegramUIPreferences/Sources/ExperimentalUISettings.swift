@@ -207,6 +207,7 @@ public struct ExperimentalUISettings: Codable, Equatable {
         springSendAnimation: Bool,
         fakeWalletTransfers: Bool,
         sharedMessageSimulatedCoEditors: Bool = false,
+        showCrashReportAlerts: Bool? = nil,
         useModernVideoMessagePipeline: Bool? = nil,
         visualQuote: Bool = true
     ) {
