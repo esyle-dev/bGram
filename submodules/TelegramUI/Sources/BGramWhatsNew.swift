@@ -6,9 +6,14 @@ import Security
 ///
 /// The build number it was last shown for lives in the keychain, which survives deleting the app: reinstall
 /// the same build and the card stays away, install a newer one and it comes back once.
+///
+/// It is a plain view added to the app window, not a presented controller: presenting anything on the root
+/// controller during launch fights the launch transition (`unbalanced calls to begin/end appearance
+/// transitions`) and that is what crashed the app, while an overlay cannot desync UIKit's presentation stack.
 public enum BGramWhatsNew {
     private static let service = "ru.bgram.whatsnew"
     private static let account = "lastShownBuild"
+    private static var overlay: BGramWhatsNewOverlay?
 
     private static func readLastShownBuild() -> String? {
         let query: [String: Any] = [
@@ -38,36 +43,53 @@ public enum BGramWhatsNew {
         SecItemAdd(attributes as CFDictionary, nil)
     }
 
-    public static func presentIfNeeded(from controller: UIViewController?, isRussian: Bool) {
-        guard let controller else {
+    public static func presentIfNeeded(in window: UIWindow?, isRussian: Bool) {
+        guard let window else {
             return
         }
         let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "0"
         if readLastShownBuild() == build {
             return
         }
-        // Marked right away: the card must not come back on the next launch if the user closes the app.
+        // Marked right away: the card must not come back on the next launch if the app is closed on it.
         storeLastShownBuild(build)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            let screen = BGramWhatsNewController(build: build, isRussian: isRussian)
-            screen.modalPresentationStyle = .overFullScreen
-            screen.modalTransitionStyle = .crossDissolve
-            controller.present(screen, animated: true, completion: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak window] in
+            guard let window, self.overlay == nil else {
+                return
+            }
+            let overlay = BGramWhatsNewOverlay(build: build, isRussian: isRussian)
+            overlay.frame = window.bounds
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            window.addSubview(overlay)
+            self.overlay = overlay
+            overlay.animateIn()
+        }
+    }
+
+    fileprivate static func dismiss() {
+        guard let overlay = self.overlay else {
+            return
+        }
+        self.overlay = nil
+        overlay.animateOut {
+            overlay.removeFromSuperview()
         }
     }
 }
 
-private final class BGramWhatsNewController: UIViewController {
+private final class BGramWhatsNewOverlay: UIView {
+    private let card = UIView()
     private let build: String
     private let isRussian: Bool
 
     init(build: String, isRussian: Bool) {
         self.build = build
         self.isRussian = isRussian
-        super.init(nibName: nil, bundle: nil)
+        super.init(frame: .zero)
+        self.buildContent()
     }
 
-    required init(coder: NSCoder) {
+    required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -75,16 +97,15 @@ private final class BGramWhatsNewController: UIViewController {
         return self.isRussian ? ru : en
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        self.view.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+    private func buildContent() {
+        self.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        self.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
-        let card = UIView()
-        card.backgroundColor = .secondarySystemBackground
-        card.layer.cornerRadius = 22.0
-        card.layer.cornerCurve = .continuous
-        card.translatesAutoresizingMaskIntoConstraints = false
-        self.view.addSubview(card)
+        self.card.backgroundColor = .secondarySystemBackground
+        self.card.layer.cornerRadius = 22.0
+        self.card.layer.cornerCurve = .continuous
+        self.card.translatesAutoresizingMaskIntoConstraints = false
+        self.addSubview(self.card)
 
         let title = UILabel()
         title.text = self.text("Что нового в bGram", "What's new in bGram")
@@ -103,26 +124,20 @@ private final class BGramWhatsNewController: UIViewController {
              self.text("Новая вкладка в настройках, над «Избранным»: все фичи сборки включаются и выключаются свитчами.",
                        "A new settings tab above Saved Messages: every feature of this build is one switch away.")),
             (self.text("Аннотации", "Annotations"),
-             self.text("Выделите слово в сообщении — Format › Annotations добавит к нему пояснение с фото, ссылкой и AI-черновиком.",
+             self.text("Выделите слово в сообщении — Format › Аннотации добавит к нему пояснение с фото, ссылкой и AI-черновиком.",
                        "Select a word — Format › Annotations attaches a note with a photo, a link or an AI draft.")),
             (self.text("Свайп с действиями", "Multi-action swipe"),
              self.text("Смахните сообщение до конца и задержите палец: сверху — пересылка, снизу — копирование или сохранение.",
                        "Swipe a message all the way and hold: forward above, copy or save below.")),
-            (self.text("Мультиответ", "Multi-reply"),
-             self.text("Выберите 2–5 сообщений и ответьте на них одной колодой цитат.",
-                       "Select 2–5 messages and answer them with one deck of quotes.")),
+            (self.text("Мультиответ, цитата, транскрипт", "Multi-reply, quote, transcript"),
+             self.text("Ответ колодой цитат, ответ на фрагмент фото и читаемый транскрипт голосовых с AI-конспектом.",
+                       "Reply with a deck of quotes, reply to a part of a photo, and read voice messages with an AI summary.")),
             (self.text("Скриншот без лишнего", "Clean screenshots"),
              self.text("После скриншота чата — редактор: уберите сообщения, вырежьте текст, выберите тему.",
                        "After a chat screenshot an editor offers to drop messages, cut text and pick a theme.")),
-            (self.text("Визуальная цитата, транскрипт голосовых, «Умный звук»", "Visual quote, voice transcripts, smart muting"),
-             self.text("Ответ на фрагмент фото, читаемый транскрипт с AI-конспектом и уведомления о важном в беззвучных каналах.",
-                       "Reply to a part of a photo, read a voice message, and hear what matters in muted channels.")),
-            (self.text("Свайп к непрочитанным", "Swipe to unread"),
-             self.text("Потяните чат вверх у нижнего края — лента непрочитанных с превью, не выходя из чата.",
-                       "Pull the chat up from the bottom edge to walk through unread chats without leaving.")),
-            (self.text("Архив подарков и «Предложить цену»", "Gift archive and offers"),
-             self.text("Спрятанные подарки лежат в архиве профиля, а за подарок можно предложить свою цену.",
-                       "Hidden gifts live in a profile archive, and you can offer your price for a gift."))
+            (self.text("Новое, но выключено", "New, but off"),
+             self.text("Свайп к непрочитанным, архив подарков, «Предложить цену», ответ на фото из альбома и общие сообщения — прототипы, по умолчанию выключены: включайте свитчем сознательно.",
+                       "Swipe to unread, gift archive, offers, album photo reply and shared messages are prototypes and start off: turn them on deliberately."))
         ]
 
         let stack = UIStackView()
@@ -166,22 +181,20 @@ private final class BGramWhatsNewController: UIViewController {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(stack)
 
-        card.addSubview(scroll)
-        card.addSubview(button)
-        self.view.addSubview(card)
+        self.card.addSubview(scroll)
+        self.card.addSubview(button)
 
-        let safe = self.view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            card.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
-            card.centerYAnchor.constraint(equalTo: safe.centerYAnchor),
-            card.leadingAnchor.constraint(greaterThanOrEqualTo: safe.leadingAnchor, constant: 20.0),
-            card.trailingAnchor.constraint(lessThanOrEqualTo: safe.trailingAnchor, constant: -20.0),
-            card.widthAnchor.constraint(lessThanOrEqualToConstant: 420.0),
-            card.heightAnchor.constraint(lessThanOrEqualTo: safe.heightAnchor, multiplier: 0.92),
+            self.card.centerXAnchor.constraint(equalTo: self.safeAreaLayoutGuide.centerXAnchor),
+            self.card.centerYAnchor.constraint(equalTo: self.safeAreaLayoutGuide.centerYAnchor),
+            self.card.leadingAnchor.constraint(greaterThanOrEqualTo: self.safeAreaLayoutGuide.leadingAnchor, constant: 20.0),
+            self.card.trailingAnchor.constraint(lessThanOrEqualTo: self.safeAreaLayoutGuide.trailingAnchor, constant: -20.0),
+            self.card.widthAnchor.constraint(equalToConstant: 340.0),
+            self.card.heightAnchor.constraint(lessThanOrEqualTo: self.safeAreaLayoutGuide.heightAnchor, multiplier: 0.9),
 
-            scroll.topAnchor.constraint(equalTo: card.topAnchor, constant: 22.0),
-            scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20.0),
-            scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20.0),
+            scroll.topAnchor.constraint(equalTo: self.card.topAnchor, constant: 22.0),
+            scroll.leadingAnchor.constraint(equalTo: self.card.leadingAnchor, constant: 20.0),
+            scroll.trailingAnchor.constraint(equalTo: self.card.trailingAnchor, constant: -20.0),
             scroll.bottomAnchor.constraint(equalTo: button.topAnchor, constant: -16.0),
 
             stack.topAnchor.constraint(equalTo: scroll.topAnchor),
@@ -190,16 +203,32 @@ private final class BGramWhatsNewController: UIViewController {
             stack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
             stack.widthAnchor.constraint(equalTo: scroll.widthAnchor),
 
-            button.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20.0),
-            button.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20.0),
-            button.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -20.0),
-            button.heightAnchor.constraint(equalToConstant: 50.0),
-
-            card.widthAnchor.constraint(greaterThanOrEqualToConstant: 300.0)
+            button.leadingAnchor.constraint(equalTo: self.card.leadingAnchor, constant: 20.0),
+            button.trailingAnchor.constraint(equalTo: self.card.trailingAnchor, constant: -20.0),
+            button.bottomAnchor.constraint(equalTo: self.card.bottomAnchor, constant: -20.0),
+            button.heightAnchor.constraint(equalToConstant: 50.0)
         ])
     }
 
+    func animateIn() {
+        self.card.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+        self.card.alpha = 0.0
+        UIView.animate(withDuration: 0.28, delay: 0.0, options: [.curveEaseOut]) {
+            self.card.transform = .identity
+            self.card.alpha = 1.0
+        }
+    }
+
+    func animateOut(completion: @escaping () -> Void) {
+        UIView.animate(withDuration: 0.2, animations: {
+            self.alpha = 0.0
+            self.card.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }, completion: { _ in
+            completion()
+        })
+    }
+
     @objc private func dismissSelf() {
-        self.dismiss(animated: true, completion: nil)
+        BGramWhatsNew.dismiss()
     }
 }

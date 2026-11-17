@@ -95,24 +95,24 @@ public enum BetaFeature: String, CaseIterable {
                 : "Select a word in your message and attach a note — text, a photo or a link. The reader taps the dotted word to see it."
         case .topicSwipe:
             return isRussian
-                ? "Потяните чат вверх у нижнего края: появится ряд непрочитанных чатов текущей папки и превью выбранного — можно листать, не выходя из чата."
-                : "Pull the chat up from the bottom edge: a row of unread chats of the current folder appears with a live preview, so you can switch without leaving."
+                ? "Потяните чат вверх у нижнего края: появится ряд непрочитанных чатов текущей папки и превью выбранного — можно листать, не выходя из чата. Выключено по умолчанию: не проверено на устройствах, включайте на свой риск."
+                : "Pull the chat up from the bottom edge: a row of unread chats of the current folder appears with a live preview, so you can switch without leaving. Off by default: unproven on devices."
         case .giftArchive:
             return isRussian
-                ? "Вкладка «Архив» в списке подарков профиля: убранные подарки лежат отдельно, их можно вернуть."
-                : "An Archive tab in the profile's gifts: hidden gifts live there and can be brought back."
+                ? "Вкладка «Архив» в списке подарков профиля: убранные подарки лежат отдельно, их можно вернуть. Выключено по умолчанию: не проверено на устройствах, включайте на свой риск."
+                : "An Archive tab in the profile's gifts: hidden gifts live there and can be brought back. Off by default: unproven on devices."
         case .makeOffer:
             return isRussian
-                ? "Предложить свою цену за подарок на чужом профиле: сумма держится в эскроу до ответа владельца."
-                : "Offer your own price for a gift on someone's profile: the amount is held in escrow until the owner answers."
+                ? "Предложить свою цену за подарок на чужом профиле: сумма держится в эскроу до ответа владельца. Выключено по умолчанию: не проверено на устройствах, включайте на свой риск."
+                : "Offer your own price for a gift on someone's profile: the amount is held in escrow until the owner answers. Off by default: unproven on devices."
         case .albumReply:
             return isRussian
-                ? "Ответ на одно фото из альбома: в поле ответа видно миниатюру и «Фото 4 из 9», а в меню фото — переход к нему."
-                : "Reply to one photo of an album: the reply bar shows its thumbnail and \"Photo 4 of 9\", and the photo menu jumps to it."
+                ? "Ответ на одно фото из альбома: в поле ответа видно миниатюру и «Фото 4 из 9», а в меню фото — переход к нему. Выключено по умолчанию: не проверено на устройствах, включайте на свой риск."
+                : "Reply to one photo of an album: the reply bar shows its thumbnail and \"Photo 4 of 9\", and the photo menu jumps to it. Off by default: unproven on devices."
         case .sharedMessages:
             return isRussian
-                ? "Сообщение, которое ведут несколько человек: у него общий редактор, история версий и подпись «совместно». Правки видны всем участникам."
-                : "A message several people keep: one shared editor, version history and a co-edited footer. Every editor sees the changes."
+                ? "Сообщение, которое ведут несколько человек: у него общий редактор, история версий и подпись «совместно». Правки видны всем участникам. Выключено по умолчанию: не проверено на устройствах, включайте на свой риск."
+                : "A message several people keep: one shared editor, version history and a co-edited footer. Every editor sees the changes. Off by default: unproven on devices."
         }
     }
 }
@@ -133,13 +133,24 @@ public final class BetaFeatures {
         }
     }
 
-    /// Every β-feature is on out of the box; the switch in the settings screen turns it off.
+    /// Ports whose runtime behaviour is still unproven on devices start off: a fresh install must not crash
+    /// because of them, so the switch turns them on deliberately.
+    public static func isOnByDefault(_ feature: BetaFeature) -> Bool {
+        switch feature {
+        case .topicSwipe, .giftArchive, .makeOffer, .albumReply, .sharedMessages:
+            return false
+        default:
+            return true
+        }
+    }
+
+    /// The switch in the settings screen; unset means the default above.
     public static func isEnabled(_ feature: BetaFeature) -> Bool {
         guard self.isAvailable(feature) else {
             return false
         }
         if self.defaults.object(forKey: feature.key) == nil {
-            return true
+            return self.isOnByDefault(feature)
         }
         return self.defaults.bool(forKey: feature.key)
     }
